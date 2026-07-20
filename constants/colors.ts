@@ -1,0 +1,10 @@
+export const BRAND = "#4f46e5";
+export const BRAND_DARK = "#3730a3";
+export const SUCCESS = "#10b981";
+export const DANGER = "#ef4444";
+export const WARNING = "#f59e0b";
+export const BG = "#f8fafc";
+export const CARD = "#ffffff";
+export const TEXT = "#0f172a";
+export const TEXT_MUTED = "#64748b";
+export const BORDER = "#e2e8f0";
