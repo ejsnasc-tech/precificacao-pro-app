@@ -25,11 +25,7 @@
     },
     "plugins": [
       "expo-router",
-      [
-        "expo-sqlite",
-        { "enableFTS": true }
-      ],
-      "expo-status-bar",
+      "expo-sqlite",
       "expo-font"
     ],
     "experiments": {
