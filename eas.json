@@ -23,7 +23,10 @@
     "production": {
       "ios": {
         "appleId": "edu31nasc@icloud.com",
-        "appleTeamId": "99LN859458"
+        "appleTeamId": "99LN859458",
+        "ascAppId": "6793974159",
+        "ascApiKeyIssuerId": "126387636",
+        "ascApiKeyId": "84MUZGN9LU"
       }
     }
   }
