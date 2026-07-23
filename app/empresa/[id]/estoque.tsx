@@ -20,10 +20,25 @@ interface Movimento {
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const UNIDADES = ["un", "kg", "g", "L", "ml", "cx", "pc", "saco", "fardo"];
 
-function diasParaVencer(data: string): number {
+function diasParaVencer(iso: string): number {
   const hoje = new Date(); hoje.setHours(0, 0, 0, 0);
-  const vence = new Date(data + "T00:00:00");
+  const vence = new Date(iso + "T00:00:00");
   return Math.ceil((vence.getTime() - hoje.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+// Máscara DD/MM/AAAA conforme o usuário digita
+function maskData(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
+// DD/MM/AAAA → AAAA-MM-DD para salvar no banco
+function displayToISO(display: string): string {
+  const parts = display.split("/");
+  if (parts.length === 3 && parts[2].length === 4) return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  return "";
 }
 
 const emptyForm = { nome: "", unidade: "un", quantidade_atual: "", quantidade_minima: "", custo_unitario: "", tem_validade: false, dias_alerta: "7", data_validade_inicial: "" };
@@ -95,9 +110,10 @@ export default function EstoqueScreen() {
       );
       if (form.tem_validade && qtd > 0 && form.data_validade_inicial) {
         const newId = db.getFirstSync<{ id: number }>("SELECT last_insert_rowid() as id")!.id;
+        const iso = displayToISO(form.data_validade_inicial) || form.data_validade_inicial;
         db.runSync(
           "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, data_validade) VALUES (?, ?, ?, ?, ?)",
-          [newId, "entrada", qtd, "Estoque inicial", form.data_validade_inicial]
+          [newId, "entrada", qtd, "Estoque inicial", iso]
         );
       }
     }
@@ -117,7 +133,7 @@ export default function EstoqueScreen() {
     const qtd = parseFloat(movQtd);
     db.runSync(
       "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, data_validade) VALUES (?, ?, ?, ?, ?)",
-      [movItem.id, movTipo, qtd, movObs || null, (movTipo === "entrada" && movItem.tem_validade && movValidade) ? movValidade : null]
+      [movItem.id, movTipo, qtd, movObs || null, (movTipo === "entrada" && movItem.tem_validade && movValidade) ? (displayToISO(movValidade) || movValidade) : null]
     );
     const delta = movTipo === "saida" ? -qtd : qtd;
     db.runSync("UPDATE estoque SET quantidade_atual = quantidade_atual + ? WHERE id = ?", [delta, movItem.id]);
@@ -270,8 +286,9 @@ export default function EstoqueScreen() {
                     <Field label="Alertar quantos dias antes do vencimento?" value={form.dias_alerta}
                       onChange={(v) => setForm({ ...form, dias_alerta: v })} keyboard="number-pad" />
                     {!editando && (
-                      <Field label="Data de validade do estoque inicial (AAAA-MM-DD)" value={form.data_validade_inicial}
-                        onChange={(v) => setForm({ ...form, data_validade_inicial: v })} placeholder="Ex: 2026-08-08" />
+                      <Field label="Data de validade do estoque inicial" value={form.data_validade_inicial}
+                        onChange={(v) => setForm({ ...form, data_validade_inicial: maskData(v) })}
+                        placeholder="DD/MM/AAAA" keyboard="number-pad" />
                     )}
                   </View>
                 )}
@@ -310,11 +327,12 @@ export default function EstoqueScreen() {
 
             {movTipo === "entrada" && movItem?.tem_validade === 1 && (
               <View style={s.validadeCard}>
-                <Field label="⏰ Data de validade do lote (AAAA-MM-DD)" value={movValidade}
-                  onChange={setMovValidade} placeholder="Ex: 2026-08-08" />
-                {movValidade.length === 10 && (
+                <Field label="⏰ Data de validade do lote" value={movValidade}
+                  onChange={(v) => setMovValidade(maskData(v))}
+                  placeholder="DD/MM/AAAA" keyboard="number-pad" />
+                {movValidade.length === 10 && displayToISO(movValidade) && (
                   <Text style={{ fontSize: 12, color: "#7c3aed", marginTop: 4 }}>
-                    {diasParaVencer(movValidade)} dias para vencer
+                    {diasParaVencer(displayToISO(movValidade))} dias para vencer
                   </Text>
                 )}
               </View>

@@ -18,7 +18,21 @@ type Aba = "dashboard" | "lancamentos" | "socios";
 
 const CATEGORIAS_COMPRA = ["insumos", "embalagens", "limpeza", "pessoal", "equipamentos", "outros"];
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const hoje = () => new Date().toISOString().split("T")[0];
+
+function maskData(raw: string): string {
+  const digits = raw.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+function displayToISO(d: string): string {
+  const p = d.split("/");
+  return p.length === 3 && p[2].length === 4 ? `${p[2]}-${p[1]}-${p[0]}` : "";
+}
+function hojeDisplay(): string {
+  const iso = new Date().toISOString().slice(0, 10);
+  return `${iso.slice(8, 10)}/${iso.slice(5, 7)}/${iso.slice(0, 4)}`;
+}
 
 export default function FinanceiroScreen() {
   const router = useRouter();
@@ -33,9 +47,9 @@ export default function FinanceiroScreen() {
   const [valor, setValor] = useState("");
   const [descricao, setDescricao] = useState("");
   const [categoria, setCategoria] = useState("insumos");
-  const [data, setData] = useState(hoje());
+  const [data, setData] = useState(hojeDisplay());
   const [obs, setObs] = useState("");
-  const [filtroMes, setFiltroMes] = useState(hoje().slice(0, 7));
+  const [filtroMes, setFiltroMes] = useState(new Date().toISOString().slice(0, 7));
 
   const load = useCallback(() => {
     const db = getDB();
@@ -63,11 +77,12 @@ export default function FinanceiroScreen() {
 
   function salvarLancamento() {
     if (!valor || parseFloat(valor) <= 0) { Alert.alert("Atenção", "Informe um valor válido."); return; }
+    const dataISO = displayToISO(data) || data;
     getDB().runSync(
       "INSERT INTO lancamentos (empresa_id, tipo, valor, descricao, categoria, data, obs) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [empresaId, tipo, parseFloat(valor), descricao.trim(), tipo === "compra" ? categoria : "venda", data, obs.trim()]
+      [empresaId, tipo, parseFloat(valor), descricao.trim(), tipo === "compra" ? categoria : "venda", dataISO, obs.trim()]
     );
-    setValor(""); setDescricao(""); setObs(""); setData(hoje()); setCategoria("insumos");
+    setValor(""); setDescricao(""); setObs(""); setData(hojeDisplay()); setCategoria("insumos");
     setModalVisible(false);
     load();
   }
@@ -98,9 +113,14 @@ export default function FinanceiroScreen() {
     setSocios(socios.map((s, idx) => idx === i ? { ...s, [field]: field === "percentual" ? parseFloat(value) || 0 : value } : s));
   }
 
-  const meses = Array.from({ length: 6 }, (_, i) => {
-    const d = new Date(); d.setMonth(d.getMonth() - i);
-    return d.toISOString().slice(0, 7);
+  // 3 meses futuros + mês atual + 24 meses passados = 28 meses
+  const meses = Array.from({ length: 8 }, (_, i) => {
+    const d = new Date();
+    d.setDate(1);
+    d.setMonth(d.getMonth() - i + 1);
+    const value = d.toISOString().slice(0, 7);
+    const label = d.toLocaleDateString("pt-BR", { month: "short", year: "2-digit" });
+    return { value, label };
   });
 
   return (
@@ -116,29 +136,26 @@ export default function FinanceiroScreen() {
       </View>
 
       {/* Abas */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.abaBar}
-        contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 10 }}>
-        {([["dashboard", "📊 Dashboard"], ["lancamentos", "📋 Lançamentos"], ["socios", "👥 Sócios"]] as const).map(([k, l]) => (
+      <View style={s.abaBar}>
+        {([["dashboard", "📊 Dashboard"], ["lancamentos", "📋 Lançamentos"], ["socios", "👥 Sócios"]] as const).map(([k, label]) => (
           <TouchableOpacity key={k} onPress={() => setAba(k)} style={[s.abaBtn, aba === k && s.abaBtnActive]}>
-            <Text style={[s.abaBtnText, aba === k && s.abaBtnTextActive]}>{l}</Text>
+            <Text style={[s.abaBtnText, aba === k && s.abaBtnTextActive]}>{label}</Text>
           </TouchableOpacity>
         ))}
-      </ScrollView>
+      </View>
 
       {/* Filtro de mês */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ gap: 8, paddingHorizontal: 16, paddingVertical: 8 }}>
-        {meses.map((m) => {
-          const [ano, mes] = m.split("-");
-          const label = new Date(Number(ano), Number(mes) - 1).toLocaleDateString("pt-BR", { month: "short", year: "2-digit" });
-          return (
-            <TouchableOpacity key={m} onPress={() => setFiltroMes(m)}
-              style={[s.mesBtn, filtroMes === m && s.mesBtnActive]}>
-              <Text style={[s.mesBtnText, filtroMes === m && { color: "#fff" }]}>{label}</Text>
+      <View style={s.mesBar}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8, alignItems: "center", height: 44 }}>
+          {meses.map((m) => (
+            <TouchableOpacity key={m.value} onPress={() => setFiltroMes(m.value)}
+              style={[s.mesBtn, filtroMes === m.value && s.mesBtnActive]}>
+              <Text style={[s.mesBtnText, filtroMes === m.value && { color: "#fff" }]}>{m.label}</Text>
             </TouchableOpacity>
-          );
-        })}
-      </ScrollView>
+          ))}
+        </ScrollView>
+      </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
 
@@ -314,8 +331,10 @@ export default function FinanceiroScreen() {
                 )}
 
                 <Text style={[s.configLabel, { marginTop: 12 }]}>Data</Text>
-                <TextInput style={s.input} value={data} onChangeText={setData}
-                  placeholder="AAAA-MM-DD" placeholderTextColor={C.TEXT_MUTED} />
+                <TextInput style={s.input} value={data}
+                  onChangeText={v => setData(maskData(v))}
+                  placeholder="DD/MM/AAAA" placeholderTextColor={C.TEXT_MUTED}
+                  keyboardType="number-pad" />
 
                 <Text style={[s.configLabel, { marginTop: 12 }]}>Observação (opcional)</Text>
                 <TextInput style={s.input} value={obs} onChangeText={setObs}
@@ -341,14 +360,15 @@ const s = StyleSheet.create({
   headerTitle: { fontSize: 18, fontWeight: "800", color: C.TEXT, flex: 1 },
   btnNovo: { backgroundColor: C.BRAND, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10 },
   btnNovoText: { color: "#fff", fontWeight: "700", fontSize: 13 },
-  abaBar: { backgroundColor: C.CARD, borderBottomWidth: 1, borderBottomColor: C.BORDER },
-  abaBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: C.BG },
-  abaBtnActive: { backgroundColor: C.BRAND },
-  abaBtnText: { fontSize: 13, fontWeight: "600", color: C.TEXT_MUTED },
-  abaBtnTextActive: { color: "#fff" },
-  mesBtn: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: C.CARD, borderWidth: 1, borderColor: C.BORDER },
+  abaBar: { flexDirection: "row", backgroundColor: C.CARD, borderBottomWidth: 1, borderBottomColor: C.BORDER },
+  abaBtn: { flex: 1, alignItems: "center", paddingVertical: 11, borderBottomWidth: 2, borderBottomColor: "transparent" },
+  abaBtnActive: { borderBottomColor: C.BRAND },
+  abaBtnText: { fontSize: 12, fontWeight: "700", color: C.TEXT_MUTED },
+  abaBtnTextActive: { color: C.BRAND },
+  mesBar: { height: 44, backgroundColor: C.CARD, borderBottomWidth: 1, borderBottomColor: C.BORDER },
+  mesBtn: { paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20, backgroundColor: C.BG, borderWidth: 1, borderColor: C.BORDER, height: 32, justifyContent: "center" as const },
   mesBtnActive: { backgroundColor: C.BRAND, borderColor: C.BRAND },
-  mesBtnText: { fontSize: 12, fontWeight: "600", color: C.TEXT_MUTED, textTransform: "capitalize" },
+  mesBtnText: { fontSize: 12, fontWeight: "600" as const, color: C.TEXT_MUTED, textTransform: "capitalize" as const },
   kpi: { borderRadius: 16, padding: 16 },
   kpiLabel: { fontSize: 12, fontWeight: "700", color: C.TEXT_MUTED, textTransform: "uppercase", letterSpacing: 0.5 },
   kpiValor: { fontSize: 22, fontWeight: "900", marginTop: 4 },

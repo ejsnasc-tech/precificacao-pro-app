@@ -1,0 +1,145 @@
+import { useEffect } from "react";
+import { AppState } from "react-native";
+import { getDB } from "@/lib/db";
+import { requestNotificationPermission, enviarNotificacao } from "@/lib/notifications";
+
+const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// Chave para evitar spam: só notifica uma vez por dia por alerta
+const CHAVE_DIA = new Date().toISOString().slice(0, 10);
+
+function jaNotificouHoje(chave: string): boolean {
+  try {
+    const { getItemSync } = require("@react-native-async-storage/async-storage");
+    return getItemSync?.(chave) === CHAVE_DIA;
+  } catch {
+    return false;
+  }
+}
+
+async function checarAlertas() {
+  const podeNotificar = await requestNotificationPermission();
+  if (!podeNotificar) return;
+
+  const db = getDB();
+  const hoje = new Date().toISOString().slice(0, 10);
+
+  // ── 1. Estoque vencendo ──────────────────────────────────────────────────────
+  const vencendo = db.getAllSync<{ nome_item: string; data_validade: string; dias_alerta: number }>(
+    `SELECT e.nome AS nome_item, m.data_validade, e.dias_alerta
+     FROM estoque_movimentos m
+     JOIN estoque e ON e.id = m.estoque_id
+     WHERE m.data_validade IS NOT NULL
+       AND date(m.data_validade) >= date(?)
+       AND date(m.data_validade) <= date(?, '+' || e.dias_alerta || ' days')
+     GROUP BY m.estoque_id`,
+    [hoje, hoje]
+  );
+  for (const item of vencendo) {
+    const diasRestantes = Math.round(
+      (new Date(item.data_validade).getTime() - new Date(hoje).getTime()) / 86400000
+    );
+    await enviarNotificacao(
+      "⏰ Produto vencendo em breve",
+      `${item.nome_item} vence em ${diasRestantes === 0 ? "hoje" : `${diasRestantes} dia${diasRestantes > 1 ? "s" : ""}`}`,
+      { tipo: "estoque_vencimento" }
+    );
+  }
+
+  // ── 2. Estoque abaixo do mínimo ──────────────────────────────────────────────
+  const abaixoMinimo = db.getAllSync<{ nome: string; quantidade_atual: number; quantidade_minima: number; unidade: string }>(
+    `SELECT nome, quantidade_atual, quantidade_minima, unidade
+     FROM estoque
+     WHERE quantidade_minima > 0 AND quantidade_atual <= quantidade_minima`
+  );
+  if (abaixoMinimo.length > 0) {
+    const nomes = abaixoMinimo.map(i => i.nome).join(", ");
+    await enviarNotificacao(
+      "📦 Estoque baixo",
+      abaixoMinimo.length === 1
+        ? `${abaixoMinimo[0].nome} está abaixo do estoque mínimo`
+        : `${abaixoMinimo.length} itens abaixo do mínimo: ${nomes}`,
+      { tipo: "estoque_minimo" }
+    );
+  }
+
+  // ── 3. Metas pessoais próximas (≥ 80%) ──────────────────────────────────────
+  const metasProximas = db.getAllSync<{ nome: string; emoji: string; valor_atual: number; valor_alvo: number }>(
+    `SELECT nome, emoji, valor_atual, valor_alvo
+     FROM metas_pessoais
+     WHERE concluida = 0 AND valor_alvo > 0 AND (valor_atual * 1.0 / valor_alvo) >= 0.8`
+  );
+  for (const meta of metasProximas) {
+    const pct = Math.round((meta.valor_atual / meta.valor_alvo) * 100);
+    await enviarNotificacao(
+      `${meta.emoji} Meta quase atingida!`,
+      `"${meta.nome}" está em ${pct}% — quase lá!`,
+      { tipo: "meta" }
+    );
+  }
+
+  // ── 4. Cartões: meta de fatura e limite de crédito ──────────────────────────
+  const cartoes = db.getAllSync<{
+    id: number; nome: string; limite: number; dia_fechamento: number;
+    limite_alerta_pct: number; meta_fatura: number; bandeira: string;
+  }>(
+    `SELECT id, nome, limite, dia_fechamento, limite_alerta_pct, meta_fatura, bandeira FROM cartoes_pessoais WHERE limite > 0`
+  );
+  for (const cartao of cartoes) {
+    const diaHoje = new Date().getDate();
+    let anoInicio = new Date().getFullYear();
+    let mesInicio = new Date().getMonth();
+    if (diaHoje <= cartao.dia_fechamento) {
+      mesInicio -= 1;
+      if (mesInicio < 0) { mesInicio = 11; anoInicio -= 1; }
+    }
+    const inicioCiclo = `${anoInicio}-${String(mesInicio + 1).padStart(2, "0")}-${String(cartao.dia_fechamento + 1).padStart(2, "0")}`;
+    const row = db.getFirstSync<{ total: number }>(
+      `SELECT COALESCE(SUM(valor), 0) AS total FROM gastos_cartao WHERE cartao_id = ? AND data >= ?`,
+      [cartao.id, inicioCiclo]
+    );
+    const totalGasto = row?.total ?? 0;
+
+    // Alerta de meta de fatura (prioridade maior)
+    if (cartao.meta_fatura > 0 && totalGasto >= cartao.meta_fatura) {
+      await enviarNotificacao(
+        "🚫 Meta de fatura atingida!",
+        `${cartao.nome}: fatura em ${fmt(totalGasto)} — meta era ${fmt(cartao.meta_fatura)}. Evite novos gastos neste cartão.`,
+        { tipo: "cartao_meta_fatura" }
+      );
+    } else if (cartao.meta_fatura > 0 && totalGasto >= cartao.meta_fatura * 0.8) {
+      // 80% da meta de fatura
+      const pctMeta = Math.round((totalGasto / cartao.meta_fatura) * 100);
+      await enviarNotificacao(
+        "⚠️ Fatura quase no limite!",
+        `${cartao.nome}: ${fmt(totalGasto)} de ${fmt(cartao.meta_fatura)} (${pctMeta}% da meta)`,
+        { tipo: "cartao_meta_fatura_aviso" }
+      );
+    } else {
+      // Alerta de limite de crédito
+      const limiteAlerta = cartao.limite * (cartao.limite_alerta_pct / 100);
+      if (totalGasto >= limiteAlerta) {
+        const pct = Math.round((totalGasto / cartao.limite) * 100);
+        await enviarNotificacao(
+          "💳 Limite do cartão",
+          `${cartao.nome} está ${pct}% utilizado do limite de crédito`,
+          { tipo: "cartao_limite" }
+        );
+      }
+    }
+  }
+}
+
+export function useAlertas() {
+  useEffect(() => {
+    // Verifica na abertura do app
+    checarAlertas();
+
+    // Re-verifica toda vez que o app volta ao primeiro plano
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") checarAlertas();
+    });
+
+    return () => sub.remove();
+  }, []);
+}

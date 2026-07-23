@@ -9,7 +9,10 @@
     "scheme": "precificacaopro",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ejsnasc.precificacaopro"
+      "bundleIdentifier": "com.ejsnasc.precificacaopro",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.ejsnasc.precificacaopro",
@@ -26,10 +29,25 @@
     "plugins": [
       "expo-router",
       "expo-sqlite",
-      "expo-font"
+      "expo-font",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#4f46e5",
+          "sounds": []
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "c3b33558-8e69-4ba5-97d6-c5af33e6d3cf"
+      }
+    },
+    "owner": "ejsnasc"
   }
 }

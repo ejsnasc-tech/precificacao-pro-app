@@ -25,31 +25,32 @@ export async function initDB(): Promise<void> {
     CREATE TABLE IF NOT EXISTS configuracoes_empresa (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       empresa_id INTEGER NOT NULL UNIQUE,
-      regime_tributario TEXT DEFAULT 'simples',
-      aliquota_imposto REAL DEFAULT 6.0,
-      taxa_cartao REAL DEFAULT 3.0,
-      taxa_delivery REAL DEFAULT 12.0,
-      margem_lucro REAL DEFAULT 30.0,
-      num_funcionarios INTEGER DEFAULT 1,
-      salario_medio REAL DEFAULT 1500.0,
-      horas_mes REAL DEFAULT 160.0,
-      perda_percentual REAL DEFAULT 5.0,
+      regime TEXT DEFAULT 'simples_nacional',
+      anexo TEXT DEFAULT 'I',
+      aliquota_custom REAL DEFAULT 6.0,
+      taxa_debito REAL DEFAULT 2.0,
+      taxa_credito REAL DEFAULT 3.5,
+      taxa_pix REAL DEFAULT 0.0,
+      taxa_dinheiro REAL DEFAULT 0.0,
+      funcionarios_custo REAL DEFAULT 0.0,
+      funcionarios_qtd INTEGER DEFAULT 100,
+      perdas_pct REAL DEFAULT 5.0,
       FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS catalogo_ingredientes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      empresa_id INTEGER NOT NULL DEFAULT 0,
       nome TEXT NOT NULL,
       unidade TEXT NOT NULL DEFAULT 'kg',
-      custo_unitario REAL NOT NULL DEFAULT 0
+      custo_por_unidade REAL NOT NULL DEFAULT 0
     );
 
     CREATE TABLE IF NOT EXISTS produtos (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       empresa_id INTEGER NOT NULL,
       nome TEXT NOT NULL,
-      categoria TEXT DEFAULT '',
-      preco_venda REAL DEFAULT 0,
+      margem REAL DEFAULT 30.0,
       criado_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
     );
@@ -60,7 +61,7 @@ export async function initDB(): Promise<void> {
       nome TEXT NOT NULL,
       quantidade REAL NOT NULL DEFAULT 0,
       unidade TEXT NOT NULL DEFAULT 'kg',
-      custo_unitario REAL NOT NULL DEFAULT 0,
+      custo_por_unidade REAL NOT NULL DEFAULT 0,
       FOREIGN KEY (produto_id) REFERENCES produtos(id) ON DELETE CASCADE
     );
 
@@ -116,5 +117,86 @@ export async function initDB(): Promise<void> {
       criado_at TEXT DEFAULT (datetime('now')),
       FOREIGN KEY (estoque_id) REFERENCES estoque(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS lancamentos_pessoais (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      tipo TEXT NOT NULL,
+      valor REAL NOT NULL DEFAULT 0,
+      descricao TEXT DEFAULT '',
+      categoria TEXT DEFAULT 'outros',
+      data TEXT DEFAULT (date('now')),
+      criado_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS cartoes_pessoais (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      bandeira TEXT DEFAULT 'Visa',
+      limite REAL NOT NULL DEFAULT 0,
+      dia_vencimento INTEGER NOT NULL DEFAULT 10,
+      dia_fechamento INTEGER NOT NULL DEFAULT 3,
+      cor TEXT DEFAULT '#6366f1',
+      pontua INTEGER NOT NULL DEFAULT 0,
+      pontos_atuais REAL NOT NULL DEFAULT 0,
+      limite_alerta_pct INTEGER NOT NULL DEFAULT 50,
+      criado_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS gastos_cartao (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cartao_id INTEGER NOT NULL,
+      descricao TEXT DEFAULT '',
+      valor REAL NOT NULL DEFAULT 0,
+      categoria TEXT DEFAULT 'outros',
+      data TEXT DEFAULT (date('now')),
+      criado_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (cartao_id) REFERENCES cartoes_pessoais(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS metas_pessoais (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nome TEXT NOT NULL,
+      valor_alvo REAL NOT NULL DEFAULT 0,
+      valor_atual REAL NOT NULL DEFAULT 0,
+      emoji TEXT DEFAULT '🎯',
+      concluida INTEGER NOT NULL DEFAULT 0,
+      criado_at TEXT DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS cargos_funcionarios (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      empresa_id INTEGER NOT NULL,
+      nome TEXT NOT NULL,
+      tipo TEXT NOT NULL DEFAULT 'clt',
+      salario REAL NOT NULL DEFAULT 0,
+      quantidade INTEGER NOT NULL DEFAULT 1,
+      FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
+    );
   `);
+
+  // Migrations — ALTER TABLE ignora silenciosamente se a coluna já existe
+  const migrations: string[] = [
+    "ALTER TABLE catalogo_ingredientes ADD COLUMN empresa_id INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN regime TEXT DEFAULT 'simples_nacional'",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN anexo TEXT DEFAULT 'I'",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN aliquota_custom REAL DEFAULT 6.0",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN taxa_debito REAL DEFAULT 2.0",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN taxa_credito REAL DEFAULT 3.5",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN taxa_pix REAL DEFAULT 0.0",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN taxa_dinheiro REAL DEFAULT 0.0",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN funcionarios_custo REAL DEFAULT 0.0",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN funcionarios_qtd INTEGER DEFAULT 100",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN perdas_pct REAL DEFAULT 5.0",
+    "ALTER TABLE produtos ADD COLUMN margem REAL DEFAULT 30.0",
+    "ALTER TABLE estoque ADD COLUMN tem_validade INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE estoque ADD COLUMN dias_alerta INTEGER NOT NULL DEFAULT 7",
+    "ALTER TABLE estoque_movimentos ADD COLUMN data_validade TEXT",
+    "ALTER TABLE lancamentos_pessoais ADD COLUMN forma_pagamento TEXT DEFAULT 'dinheiro'",
+    "ALTER TABLE lancamentos_pessoais ADD COLUMN cartao_id INTEGER",
+    "ALTER TABLE lancamentos_pessoais ADD COLUMN parcelas INTEGER DEFAULT 1",
+    "ALTER TABLE cartoes_pessoais ADD COLUMN meta_fatura REAL DEFAULT 0",
+  ];
+  for (const sql of migrations) {
+    try { db.runSync(sql); } catch {}
+  }
 }
