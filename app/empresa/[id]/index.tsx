@@ -4,6 +4,8 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getDB } from "@/lib/db";
 import * as C from "@/constants/colors";
+import { useLicenca } from "@/lib/LicencaContext";
+import ConvidarColaboradorModal from "@/components/ConvidarColaboradorModal";
 
 interface Empresa { id: number; nome: string; descricao: string; emoji: string; cor: string; }
 
@@ -20,12 +22,17 @@ const MODULOS = [
   { key: "precificacao", emoji: "🧮", titulo: "Precificação", desc: "Calcule o preço ideal dos seus produtos", cor: "#f97316" },
   { key: "financeiro", emoji: "💰", titulo: "Financeiro", desc: "Controle entradas, saídas e sócios", cor: "#3b82f6" },
   { key: "estoque", emoji: "📦", titulo: "Estoque", desc: "Gerencie produtos e movimentações", cor: "#10b981" },
+  { key: "configuracoes", emoji: "⚙️", titulo: "Configurações", desc: "Regime tributário, taxas, funcionários e gastos fixos", cor: "#64748b" },
+  { key: "fornecedores", emoji: "🚚", titulo: "Fornecedores", desc: "Compare preços de cotação e saiba quem está mais barato", cor: "#d97706" },
 ];
 
 export default function EmpresaHub() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const router = useRouter();
   const [empresa, setEmpresa] = useState<Empresa | null>(null);
+  const [showConvite, setShowConvite] = useState(false);
+  const { ehColaborador, permissoes } = useLicenca();
+  const modulosVisiveis = ehColaborador ? MODULOS.filter((m) => permissoes.includes(m.key)) : MODULOS;
 
   useEffect(() => {
     const row = getDB().getFirstSync<Empresa>("SELECT * FROM empresas WHERE id = ?", [Number(id)]);
@@ -50,9 +57,16 @@ export default function EmpresaHub() {
       </View>
 
       <ScrollView contentContainerStyle={s.body}>
-        <Text style={s.sectionTitle}>Módulos</Text>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+          <Text style={s.sectionTitle}>Módulos</Text>
+          {!ehColaborador && (
+            <TouchableOpacity onPress={() => setShowConvite(true)} style={s.btnConvidar}>
+              <Text style={s.btnConvidarTexto}>👥 Convidar colaborador</Text>
+            </TouchableOpacity>
+          )}
+        </View>
 
-        {MODULOS.map((m) => (
+        {modulosVisiveis.map((m) => (
           <TouchableOpacity
             key={m.key}
             style={s.card}
@@ -70,6 +84,8 @@ export default function EmpresaHub() {
           </TouchableOpacity>
         ))}
       </ScrollView>
+
+      <ConvidarColaboradorModal visible={showConvite} empresaNome={empresa.nome} onClose={() => setShowConvite(false)} />
     </SafeAreaView>
   );
 }
@@ -84,6 +100,8 @@ const s = StyleSheet.create({
   headerDesc: { fontSize: 14, color: "rgba(255,255,255,0.7)", marginTop: 4 },
   body: { padding: 20, gap: 12 },
   sectionTitle: { fontSize: 13, fontWeight: "700", color: C.TEXT_MUTED, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4 },
+  btnConvidar: { backgroundColor: C.BRAND + "15", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 12 },
+  btnConvidarTexto: { fontSize: 12, fontWeight: "700", color: C.BRAND },
   card: { backgroundColor: C.CARD, borderRadius: 18, padding: 18, flexDirection: "row", alignItems: "center", gap: 16, shadowColor: "#000", shadowOpacity: 0.05, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 2 },
   cardIcon: { width: 56, height: 56, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   cardBody: { flex: 1 },

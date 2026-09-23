@@ -5,17 +5,31 @@
   "build": {
     "development": {
       "developmentClient": true,
-      "distribution": "internal"
+      "distribution": "internal",
+      "channel": "development"
     },
     "preview": {
       "distribution": "internal",
       "ios": {
         "simulator": false
-      }
+      },
+      "channel": "preview"
     },
     "production": {
+      "autoIncrement": false,
       "ios": {
         "resourceClass": "m-medium"
+      },
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "channel": "production"
+    },
+    "apk": {
+      "extends": "production",
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
       }
     }
   },
@@ -25,8 +39,15 @@
         "appleId": "edu31nasc@icloud.com",
         "appleTeamId": "99LN859458",
         "ascAppId": "6793974159",
-        "ascApiKeyIssuerId": "126387636",
-        "ascApiKeyId": "84MUZGN9LU"
+        "ascApiKeyIssuerId": "5fe01c1a-86dd-4724-8323-f05b4e49cc3e",
+        "ascApiKeyId": "WGGFMT4Z8A",
+        "ascApiKeyPath": "./AuthKey_WGGFMT4Z8A.p8"
+      },
+      "android": {
+        "serviceAccountKeyPath": "./google-service-account.json",
+        "track": "production",
+        "releaseStatus": "draft",
+        "changesNotSentForReview": true
       }
     }
   }

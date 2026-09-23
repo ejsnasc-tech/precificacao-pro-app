@@ -172,6 +172,35 @@ export async function initDB(): Promise<void> {
       quantidade INTEGER NOT NULL DEFAULT 1,
       FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS fornecedores (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      empresa_id INTEGER NOT NULL,
+      nome TEXT NOT NULL,
+      telefone TEXT DEFAULT '',
+      observacoes TEXT DEFAULT '',
+      criado_em TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS cotacoes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      empresa_id INTEGER NOT NULL,
+      item_nome TEXT NOT NULL,
+      fornecedor_id INTEGER NOT NULL,
+      preco REAL NOT NULL DEFAULT 0,
+      unidade TEXT NOT NULL DEFAULT 'kg',
+      data_cotacao TEXT DEFAULT (date('now')),
+      observacao TEXT DEFAULT '',
+      criado_em TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (empresa_id) REFERENCES empresas(id) ON DELETE CASCADE,
+      FOREIGN KEY (fornecedor_id) REFERENCES fornecedores(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS alertas_notificados (
+      chave TEXT PRIMARY KEY,
+      notificado_em TEXT DEFAULT (datetime('now'))
+    );
   `);
 
   // Migrations — ALTER TABLE ignora silenciosamente se a coluna já existe
@@ -195,6 +224,28 @@ export async function initDB(): Promise<void> {
     "ALTER TABLE lancamentos_pessoais ADD COLUMN cartao_id INTEGER",
     "ALTER TABLE lancamentos_pessoais ADD COLUMN parcelas INTEGER DEFAULT 1",
     "ALTER TABLE cartoes_pessoais ADD COLUMN meta_fatura REAL DEFAULT 0",
+    "ALTER TABLE catalogo_ingredientes ADD COLUMN atualizado_em TEXT",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN funcionarios_metodo TEXT DEFAULT 'producao_mensal'",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN funcionarios_dias_trabalhados REAL DEFAULT 30",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN funcionarios_horas_dia REAL DEFAULT 8",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN funcionarios_percentual_ingredientes REAL DEFAULT 30",
+    "ALTER TABLE produtos ADD COLUMN tempo_preparo_minutos REAL DEFAULT 0",
+    "ALTER TABLE produtos ADD COLUMN rendimento REAL DEFAULT 1",
+    // Colunas que só existiam no site — adicionadas aqui pra um backup
+    // importado do site não perder esses dados (ver lib/backupCanonico.ts).
+    "ALTER TABLE produtos ADD COLUMN pessoas_preparo REAL DEFAULT 1",
+    "ALTER TABLE configuracoes_empresa ADD COLUMN funcionarios_qtd_pessoas REAL DEFAULT 1",
+    "ALTER TABLE lancamentos_pessoais ADD COLUMN obs TEXT DEFAULT ''",
+    "ALTER TABLE metas_pessoais ADD COLUMN prazo TEXT",
+    "ALTER TABLE metas_pessoais ADD COLUMN cor TEXT DEFAULT '#6366f1'",
+    "ALTER TABLE estoque ADD COLUMN foto TEXT",
+    // "cargos" (soma dos cargos cadastrados, com encargos) ou "manual" (um
+    // valor de custo mensal total digitado direto) — default 'cargos'
+    // porque é o único jeito que o app já suportava antes dessa coluna existir.
+    "ALTER TABLE configuracoes_empresa ADD COLUMN funcionarios_modo_custo TEXT DEFAULT 'cargos'",
+    // Forma de pagamento de cada venda (dinheiro/debito/credito/pix) — usada
+    // no DRE pra calcular a taxa de maquininha certa em vez de um valor único.
+    "ALTER TABLE lancamentos ADD COLUMN forma_pagamento TEXT",
   ];
   for (const sql of migrations) {
     try { db.runSync(sql); } catch {}

@@ -5,16 +5,30 @@ import { requestNotificationPermission, enviarNotificacao } from "@/lib/notifica
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-// Chave para evitar spam: só notifica uma vez por dia por alerta
-const CHAVE_DIA = new Date().toISOString().slice(0, 10);
+// Evita reenviar a mesma notificação toda vez que o app abre: cada alerta tem
+// uma "chave" que muda se o conteúdo relevante mudar (ex: lista de itens em
+// falta), então só notifica de novo quando algo realmente muda.
+function jaNotificou(chave: string): boolean {
+  const db = getDB();
+  const row = db.getFirstSync<{ chave: string }>(
+    "SELECT chave FROM alertas_notificados WHERE chave = ?",
+    [chave]
+  );
+  return !!row;
+}
 
-function jaNotificouHoje(chave: string): boolean {
-  try {
-    const { getItemSync } = require("@react-native-async-storage/async-storage");
-    return getItemSync?.(chave) === CHAVE_DIA;
-  } catch {
-    return false;
-  }
+function marcarNotificado(chave: string) {
+  const db = getDB();
+  db.runSync(
+    "INSERT OR REPLACE INTO alertas_notificados (chave, notificado_em) VALUES (?, datetime('now'))",
+    [chave]
+  );
+}
+
+async function notificarSeNovo(chave: string, titulo: string, corpo: string, data: Record<string, string>) {
+  if (jaNotificou(chave)) return;
+  await enviarNotificacao(titulo, corpo, data);
+  marcarNotificado(chave);
 }
 
 async function checarAlertas() {
@@ -39,7 +53,8 @@ async function checarAlertas() {
     const diasRestantes = Math.round(
       (new Date(item.data_validade).getTime() - new Date(hoje).getTime()) / 86400000
     );
-    await enviarNotificacao(
+    await notificarSeNovo(
+      `venc:${item.nome_item}:${item.data_validade}:${hoje}`,
       "⏰ Produto vencendo em breve",
       `${item.nome_item} vence em ${diasRestantes === 0 ? "hoje" : `${diasRestantes} dia${diasRestantes > 1 ? "s" : ""}`}`,
       { tipo: "estoque_vencimento" }
@@ -50,11 +65,13 @@ async function checarAlertas() {
   const abaixoMinimo = db.getAllSync<{ nome: string; quantidade_atual: number; quantidade_minima: number; unidade: string }>(
     `SELECT nome, quantidade_atual, quantidade_minima, unidade
      FROM estoque
-     WHERE quantidade_minima > 0 AND quantidade_atual <= quantidade_minima`
+     WHERE quantidade_minima > 0 AND quantidade_atual <= quantidade_minima
+     ORDER BY nome`
   );
   if (abaixoMinimo.length > 0) {
     const nomes = abaixoMinimo.map(i => i.nome).join(", ");
-    await enviarNotificacao(
+    await notificarSeNovo(
+      `estoque_min:${hoje}:${nomes}`,
       "📦 Estoque baixo",
       abaixoMinimo.length === 1
         ? `${abaixoMinimo[0].nome} está abaixo do estoque mínimo`
@@ -71,7 +88,8 @@ async function checarAlertas() {
   );
   for (const meta of metasProximas) {
     const pct = Math.round((meta.valor_atual / meta.valor_alvo) * 100);
-    await enviarNotificacao(
+    await notificarSeNovo(
+      `meta:${meta.nome}:${pct}:${hoje}`,
       `${meta.emoji} Meta quase atingida!`,
       `"${meta.nome}" está em ${pct}% — quase lá!`,
       { tipo: "meta" }
@@ -102,7 +120,8 @@ async function checarAlertas() {
 
     // Alerta de meta de fatura (prioridade maior)
     if (cartao.meta_fatura > 0 && totalGasto >= cartao.meta_fatura) {
-      await enviarNotificacao(
+      await notificarSeNovo(
+        `cartao_meta:${cartao.id}:${hoje}`,
         "🚫 Meta de fatura atingida!",
         `${cartao.nome}: fatura em ${fmt(totalGasto)} — meta era ${fmt(cartao.meta_fatura)}. Evite novos gastos neste cartão.`,
         { tipo: "cartao_meta_fatura" }
@@ -110,7 +129,8 @@ async function checarAlertas() {
     } else if (cartao.meta_fatura > 0 && totalGasto >= cartao.meta_fatura * 0.8) {
       // 80% da meta de fatura
       const pctMeta = Math.round((totalGasto / cartao.meta_fatura) * 100);
-      await enviarNotificacao(
+      await notificarSeNovo(
+        `cartao_meta_aviso:${cartao.id}:${hoje}`,
         "⚠️ Fatura quase no limite!",
         `${cartao.nome}: ${fmt(totalGasto)} de ${fmt(cartao.meta_fatura)} (${pctMeta}% da meta)`,
         { tipo: "cartao_meta_fatura_aviso" }
@@ -120,7 +140,8 @@ async function checarAlertas() {
       const limiteAlerta = cartao.limite * (cartao.limite_alerta_pct / 100);
       if (totalGasto >= limiteAlerta) {
         const pct = Math.round((totalGasto / cartao.limite) * 100);
-        await enviarNotificacao(
+        await notificarSeNovo(
+          `cartao_limite:${cartao.id}:${hoje}`,
           "💳 Limite do cartão",
           `${cartao.nome} está ${pct}% utilizado do limite de crédito`,
           { tipo: "cartao_limite" }

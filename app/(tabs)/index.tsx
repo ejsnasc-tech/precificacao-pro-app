@@ -7,6 +7,7 @@ import { useRouter, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getDB } from "@/lib/db";
 import * as C from "@/constants/colors";
+import { useLicenca } from "@/lib/LicencaContext";
 
 interface Empresa { id: number; nome: string; descricao: string; emoji: string; cor: string; }
 
@@ -30,6 +31,7 @@ const COR_HEX: Record<string, [string, string]> = {
 
 export default function EmpresasScreen() {
   const router = useRouter();
+  const { sair, ehColaborador } = useLicenca();
   const [empresas, setEmpresas] = useState<Empresa[]>([]);
   const [loading, setLoading] = useState(true);
   const [modalVisible, setModalVisible] = useState(false);
@@ -84,19 +86,44 @@ export default function EmpresasScreen() {
     );
   }
 
+  function confirmarSair() {
+    Alert.alert(
+      "Sair",
+      "Sair desta instalação? Você vai precisar do código de acesso pra entrar de novo.",
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Sair", style: "destructive", onPress: () => void sair() },
+      ]
+    );
+  }
+
   const colors = COR_HEX[cor] ?? ["#6366f1", "#9333ea"];
 
   return (
     <SafeAreaView style={s.safe}>
       {/* Header */}
       <View style={s.header}>
-        <View>
-          <Text style={s.headerTitle}>Minhas Empresas</Text>
-          <Text style={s.headerSub}>{empresas.length} empresa{empresas.length !== 1 ? "s" : ""} cadastrada{empresas.length !== 1 ? "s" : ""}</Text>
+        <View style={s.headerTopRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={s.headerTitle}>Minhas Empresas</Text>
+            <Text style={s.headerSub}>
+              {ehColaborador ? "Acesso de colaborador" : `${empresas.length} empresa${empresas.length !== 1 ? "s" : ""} cadastrada${empresas.length !== 1 ? "s" : ""}`}
+            </Text>
+          </View>
+          {!ehColaborador && (
+            <TouchableOpacity style={s.btnNova} onPress={() => setModalVisible(true)}>
+              <Text style={s.btnNovaText}>+ Nova</Text>
+            </TouchableOpacity>
+          )}
         </View>
-        <TouchableOpacity style={s.btnNova} onPress={() => setModalVisible(true)}>
-          <Text style={s.btnNovaText}>+ Nova</Text>
-        </TouchableOpacity>
+        <View style={s.headerActionsRow}>
+          <TouchableOpacity style={s.pillBtn} onPress={() => router.push("/backup")}>
+            <Text style={s.pillBtnText}>💾 Backup</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.pillBtn} onPress={confirmarSair}>
+            <Text style={s.pillBtnText}>🚪 Sair</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {loading ? (
@@ -105,7 +132,11 @@ export default function EmpresasScreen() {
         <View style={s.empty}>
           <Text style={s.emptyEmoji}>🏪</Text>
           <Text style={s.emptyTitle}>Nenhuma empresa ainda</Text>
-          <Text style={s.emptySub}>Toque em "+ Nova" para começar</Text>
+          <Text style={s.emptySub}>
+            {ehColaborador
+              ? 'Peça pro dono te mandar o arquivo de backup da empresa e importe em "💾 Backup" acima'
+              : 'Toque em "+ Nova" para começar'}
+          </Text>
         </View>
       ) : (
         <FlatList
@@ -122,6 +153,15 @@ export default function EmpresasScreen() {
                 activeOpacity={0.85}
               >
                 <View style={[s.cardGlow, { backgroundColor: c2 }]} />
+                {!ehColaborador && (
+                  <TouchableOpacity
+                    onPress={(e) => { e.stopPropagation(); confirmarDeletar(item); }}
+                    style={s.cardBtnExcluir}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Text style={s.cardBtnExcluirText}>🗑️</Text>
+                  </TouchableOpacity>
+                )}
                 <Text style={s.cardEmoji}>{item.emoji}</Text>
                 <Text style={s.cardNome}>{item.nome}</Text>
                 {item.descricao ? <Text style={s.cardDesc}>{item.descricao}</Text> : null}
@@ -188,17 +228,23 @@ export default function EmpresasScreen() {
 
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.BG },
-  header: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 20, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: C.BORDER, backgroundColor: C.CARD },
+  header: { paddingHorizontal: 20, paddingTop: 16, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.BORDER, backgroundColor: C.CARD, gap: 12 },
+  headerTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", gap: 12 },
   headerTitle: { fontSize: 22, fontWeight: "800", color: C.TEXT },
   headerSub: { fontSize: 13, color: C.TEXT_MUTED, marginTop: 2 },
-  btnNova: { backgroundColor: C.BRAND, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+  headerActionsRow: { flexDirection: "row", gap: 8 },
+  btnNova: { backgroundColor: C.BRAND, paddingHorizontal: 16, paddingVertical: 9, borderRadius: 12 },
   btnNovaText: { color: "#fff", fontWeight: "700", fontSize: 14 },
+  pillBtn: { backgroundColor: C.BG, borderWidth: 1, borderColor: C.BORDER, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 10 },
+  pillBtnText: { color: C.TEXT_MUTED, fontWeight: "600", fontSize: 12 },
   empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: 40 },
   emptyEmoji: { fontSize: 56, marginBottom: 16 },
   emptyTitle: { fontSize: 18, fontWeight: "700", color: C.TEXT, marginBottom: 8 },
   emptySub: { fontSize: 14, color: C.TEXT_MUTED },
   card: { borderRadius: 20, padding: 20, minHeight: 120, overflow: "hidden", position: "relative" },
   cardGlow: { position: "absolute", width: 120, height: 120, borderRadius: 60, right: -20, top: -20, opacity: 0.5 },
+  cardBtnExcluir: { position: "absolute", top: 14, right: 14, width: 32, height: 32, borderRadius: 16, backgroundColor: "rgba(0,0,0,0.18)", alignItems: "center", justifyContent: "center", zIndex: 1 },
+  cardBtnExcluirText: { fontSize: 14 },
   cardEmoji: { fontSize: 32, marginBottom: 8 },
   cardNome: { fontSize: 20, fontWeight: "800", color: "#fff" },
   cardDesc: { fontSize: 13, color: "rgba(255,255,255,0.7)", marginTop: 4 },

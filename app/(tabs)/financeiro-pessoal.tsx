@@ -7,6 +7,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect } from "expo-router";
 import { getDB } from "@/lib/db";
 import * as C from "@/constants/colors";
+import { parseValorBR } from "@/lib/numero";
 
 // ── Tipos ──────────────────────────────────────────────────────────────────────
 
@@ -201,13 +202,13 @@ export default function FinanceiroPessoalScreen() {
   // ── Lançamento ────────────────────────────────────────────────────────────────
 
   function salvarLanc() {
-    if (!valor || parseFloat(valor) <= 0) { Alert.alert("Digite um valor válido."); return; }
+    if (!valor || parseValorBR(valor) <= 0) { Alert.alert("Digite um valor válido."); return; }
     if (tipo === "despesa" && formaPgto === "cartao" && !cartaoSel) {
       Alert.alert("Selecione o cartão utilizado."); return;
     }
     const db = getDB();
     const dataISO = displayToISO(dataSel) || dataSel;
-    const vlr = parseFloat(valor);
+    const vlr = parseValorBR(valor);
     const fp = tipo === "despesa" ? formaPgto : "dinheiro";
     const nParc = tipo === "despesa" && formaPgto === "cartao" ? parseInt(parcelas) || 1 : 1;
 
@@ -253,10 +254,10 @@ export default function FinanceiroPessoalScreen() {
     const db = getDB();
     if (metaEditando) {
       db.runSync("UPDATE metas_pessoais SET nome=?, valor_alvo=?, valor_atual=?, emoji=? WHERE id=?",
-        [metaNome.trim(), parseFloat(metaAlvo), parseFloat(metaAtual) || 0, metaEmoji, metaEditando.id]);
+        [metaNome.trim(), parseValorBR(metaAlvo), parseValorBR(metaAtual) || 0, metaEmoji, metaEditando.id]);
     } else {
       db.runSync("INSERT INTO metas_pessoais (nome, valor_alvo, valor_atual, emoji) VALUES (?, ?, ?, ?)",
-        [metaNome.trim(), parseFloat(metaAlvo), parseFloat(metaAtual) || 0, metaEmoji]);
+        [metaNome.trim(), parseValorBR(metaAlvo), parseValorBR(metaAtual) || 0, metaEmoji]);
     }
     fecharModalMeta(); load();
   }
@@ -297,13 +298,13 @@ export default function FinanceiroPessoalScreen() {
     const db = getDB();
     const vals = [
       cartaoForm.nome.trim(), cartaoForm.bandeira,
-      parseFloat(cartaoForm.limite) || 0,
+      parseValorBR(cartaoForm.limite) || 0,
       parseInt(cartaoForm.dia_vencimento) || 10,
       parseInt(cartaoForm.dia_fechamento) || 3,
       cartaoForm.cor, cartaoForm.pontua ? 1 : 0,
-      parseFloat(cartaoForm.pontos_atuais) || 0,
+      parseValorBR(cartaoForm.pontos_atuais) || 0,
       parseInt(cartaoForm.limite_alerta_pct) || 50,
-      parseFloat(cartaoForm.meta_fatura) || 0,
+      parseValorBR(cartaoForm.meta_fatura) || 0,
     ];
     if (cartaoEditando) {
       db.runSync("UPDATE cartoes_pessoais SET nome=?,bandeira=?,limite=?,dia_vencimento=?,dia_fechamento=?,cor=?,pontua=?,pontos_atuais=?,limite_alerta_pct=?,meta_fatura=? WHERE id=?",
@@ -338,7 +339,7 @@ export default function FinanceiroPessoalScreen() {
     const gastoDataISO = displayToISO(gastoData) || gastoData;
     getDB().runSync(
       "INSERT INTO gastos_cartao (cartao_id, descricao, valor, categoria, data) VALUES (?, ?, ?, ?, ?)",
-      [cartaoGasto.id, gastoDesc.trim(), parseFloat(gastoValor), gastoCat, gastoDataISO]
+      [cartaoGasto.id, gastoDesc.trim(), parseValorBR(gastoValor), gastoCat, gastoDataISO]
     );
     setGastoValor(""); setGastoDesc(""); setGastoCat("outros");
     setGastoData(hojeDisplay());
@@ -913,10 +914,10 @@ export default function FinanceiroPessoalScreen() {
                               </TouchableOpacity>
                             ))}
                           </View>
-                          {parseFloat(valor) > 0 && parseInt(parcelas) > 1 && (
+                          {parseValorBR(valor) > 0 && parseInt(parcelas) > 1 && (
                             <View style={{ backgroundColor: "#fdf2f8", borderRadius: 8, padding: 8 }}>
                               <Text style={{ color: "#7c3aed", fontWeight: "600", fontSize: 12 }}>
-                                {parcelas}x de {fmt(parseFloat(valor) / (parseInt(parcelas) || 1))}
+                                {parcelas}x de {fmt(parseValorBR(valor) / (parseInt(parcelas) || 1))}
                               </Text>
                             </View>
                           )}
@@ -962,7 +963,7 @@ export default function FinanceiroPessoalScreen() {
                   Fecha dia {cartaoForm.dia_fechamento} · Vence dia {cartaoForm.dia_vencimento}
                 </Text>
                 <Text style={{ color: "rgba(255,255,255,0.9)", fontSize: 15, fontWeight: "700", marginTop: 4 }}>
-                  Limite: {fmt(parseFloat(cartaoForm.limite) || 0)}
+                  Limite: {fmt(parseValorBR(cartaoForm.limite) || 0)}
                 </Text>
               </View>
 
@@ -1015,7 +1016,7 @@ export default function FinanceiroPessoalScreen() {
                 <TextInput style={s.input} value={cartaoForm.limite_alerta_pct} onChangeText={v => setCartaoForm({ ...cartaoForm, limite_alerta_pct: v })}
                   keyboardType="number-pad" placeholder="Ex: 50" placeholderTextColor={C.TEXT_MUTED} />
                 <Text style={{ fontSize: 12, color: C.TEXT_MUTED, marginTop: 4 }}>
-                  Alerta quando gastar mais de {cartaoForm.limite_alerta_pct || "50"}% do limite ({fmt((parseFloat(cartaoForm.limite) || 0) * ((parseInt(cartaoForm.limite_alerta_pct) || 50) / 100))})
+                  Alerta quando gastar mais de {cartaoForm.limite_alerta_pct || "50"}% do limite ({fmt((parseValorBR(cartaoForm.limite) || 0) * ((parseInt(cartaoForm.limite_alerta_pct) || 50) / 100))})
                 </Text>
               </FLabel>
 
@@ -1121,7 +1122,7 @@ export default function FinanceiroPessoalScreen() {
             <View style={{ flexDirection: "row", gap: 10 }}>
               <TouchableOpacity style={[s.btnSalvar, { flex: 1, paddingVertical: 12 }]}
                 onPress={() => {
-                  const n = parseFloat(aporteValor) || 0;
+                  const n = parseValorBR(aporteValor) || 0;
                   if (n > 0 && metaAportando) aportarMeta(metaAportando, n);
                   setModalAporte(false);
                 }}>

@@ -1,0 +1,57 @@
+=== Cole cada campo no lugar correspondente em App Store Connect → App Store → 1.0 Preparar para envio ===
+
+--- Nome do app ---
+Top Precificação
+
+--- Subtítulo (até 30 caracteres) ---
+Preços, estoque e financeiro
+
+--- Categoria ---
+Primária: Negócios
+Secundária: Finanças (opcional)
+
+--- Palavras-chave (até 100 caracteres, separe por vírgula, sem espaço) ---
+precificação,preço de venda,estoque,financeiro,MEI,pequena empresa,DRE,fornecedor,cotação,margem,custo,CLT
+
+--- Texto promocional (até 170 caracteres — pode mudar depois sem enviar nova versão) ---
+Sistema completo pra pequenos negócios: calcule o preço certo, controle estoque e fornecedores, e organize as finanças da empresa — tudo no seu celular ou computador.
+
+--- Descrição ---
+Top Precificação é o sistema de gestão feito pra quem toca um negócio pequeno e não tem tempo (nem paciência) pra planilha.
+
+🧮 PRECIFICAÇÃO
+Calcule o preço ideal de cada produto considerando ingredientes, perdas, funcionários, gastos fixos e impostos do seu regime tributário (Simples Nacional, MEI, Lucro Presumido ou Real). Veja o preço já ajustado por forma de pagamento (débito, crédito, PIX, dinheiro).
+
+📦 ESTOQUE
+Controle entradas e saídas, receba alerta de estoque mínimo e de validade próxima, e sincronize os dados entre o seu celular e o de um colaborador.
+
+🚚 FORNECEDORES
+Cadastre cotações de cada fornecedor e veja na hora quem está mais barato pra cada item — sem precisar caçar nota fiscal antiga pra lembrar quanto pagou.
+
+💰 FINANCEIRO
+Lançamentos, DRE (Demonstração de Resultado), ponto de equilíbrio e distribuição entre sócios — tudo calculado automaticamente a partir do que você já lançou.
+
+👤 FINANÇAS PESSOAIS
+Controle separado pra suas contas pessoais: cartões de crédito com parcelas, metas de economia e relatórios mensais.
+
+🔒 SEUS DADOS, NO SEU DISPOSITIVO
+Nenhuma informação do seu negócio é enviada pra nossos servidores. Tudo fica salvo localmente, com backup manual quando você quiser transferir pra outro aparelho.
+
+✈️ FUNCIONA OFFLINE
+Depois de ativado, o app funciona sem internet — precisa de conexão só pra ativação inicial e sincronizações opcionais.
+
+👥 COLABORADORES
+Dono do negócio pode convidar colaboradores com acesso restrito só às áreas que escolher (por exemplo, só o Estoque), sem expor o financeiro da empresa.
+
+Disponível também para computador (Windows) e em breve para Mac — mesma conta, mesmos dados, do jeito que funciona melhor pra você.
+
+O acesso ao Top Precificação é feito por código de licença, adquirido diretamente com a gente.
+
+--- URL de marketing ---
+https://topprecificacao.com.br
+
+--- URL de suporte ---
+https://topprecificacao.com.br/privacidade
+
+--- Copyright ---
+2026 EJSNASC Tech

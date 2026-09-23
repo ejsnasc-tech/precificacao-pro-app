@@ -1,0 +1,12 @@
+=== Cole isso no campo "Notes" da seção "App Review Information" no App Store Connect ===
+
+Top Precificação is a business management tool for small business owners (pricing calculator, inventory control, financial reports). Access is granted via a license code purchased directly from us outside the app (WhatsApp/website), similar to a multiplatform service also available on our website (topprecificacao.com.br) and desktop app. The app itself contains no purchase flow and displays no pricing.
+
+To review the app, please use this test access code on the activation screen:
+
+Code: GE5U-KTNY-ZPGM
+Email: (any valid email format works, e.g. reviewer@apple.com)
+
+After entering the code and email, tap "Ativar acesso" to unlock the app. No further account creation is needed.
+
+Contact: suporte@topprecificacao.com.br

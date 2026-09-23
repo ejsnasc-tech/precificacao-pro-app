@@ -1,12 +1,14 @@
 import { useState, useCallback } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
-  TextInput, Alert, Modal, KeyboardAvoidingView, Platform, Switch,
+  TextInput, Alert, Modal, KeyboardAvoidingView, Platform, Switch, ActivityIndicator,
 } from "react-native";
 import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getDB } from "@/lib/db";
 import * as C from "@/constants/colors";
+import { exportarEstoque, importarEstoque } from "@/lib/syncEstoque";
+import { parseValorBR } from "@/lib/numero";
 
 interface Item {
   id: number; nome: string; unidade: string; quantidade_atual: number;
@@ -49,7 +51,10 @@ export default function EstoqueScreen() {
   const empresaId = Number(id);
 
   const [itens, setItens] = useState<Item[]>([]);
+  const [empresaNome, setEmpresaNome] = useState("");
   const [busca, setBusca] = useState("");
+  const [sincronizando, setSincronizando] = useState(false);
+  const [syncMsg, setSyncMsg] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [editando, setEditando] = useState<Item | null>(null);
   const [modalForm, setModalForm] = useState(false);
@@ -70,10 +75,13 @@ export default function EstoqueScreen() {
   const [modalRetirada, setModalRetirada] = useState(false);
 
   const load = useCallback(() => {
-    const rows = getDB().getAllSync<Item>(
+    const db = getDB();
+    const rows = db.getAllSync<Item>(
       "SELECT * FROM estoque WHERE empresa_id = ? ORDER BY nome", [empresaId]
     );
     setItens(rows);
+    const emp = db.getFirstSync<{ nome: string }>("SELECT nome FROM empresas WHERE id = ?", [empresaId]);
+    setEmpresaNome(emp?.nome ?? "");
   }, [empresaId]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -89,12 +97,12 @@ export default function EstoqueScreen() {
   function salvarItem() {
     if (!form.nome.trim()) return;
     const db = getDB();
-    const qtd = parseFloat(form.quantidade_atual) || 0;
+    const qtd = parseValorBR(form.quantidade_atual) || 0;
     const body = [
       form.nome.trim(), form.unidade,
       qtd,
-      parseFloat(form.quantidade_minima) || 0,
-      parseFloat(form.custo_unitario) || 0,
+      parseValorBR(form.quantidade_minima) || 0,
+      parseValorBR(form.custo_unitario) || 0,
       form.tem_validade ? 1 : 0,
       parseInt(form.dias_alerta) || 7,
     ];
@@ -130,7 +138,7 @@ export default function EstoqueScreen() {
   function registrarMovimento() {
     if (!movItem || !movQtd) return;
     const db = getDB();
-    const qtd = parseFloat(movQtd);
+    const qtd = parseValorBR(movQtd);
     db.runSync(
       "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, data_validade) VALUES (?, ?, ?, ?, ?)",
       [movItem.id, movTipo, qtd, movObs || null, (movTipo === "entrada" && movItem.tem_validade && movValidade) ? (displayToISO(movValidade) || movValidade) : null]
@@ -145,7 +153,7 @@ export default function EstoqueScreen() {
   function registrarRetirada() {
     if (!retiradaItem || !retiradaQtd) return;
     const db = getDB();
-    const qtd = parseFloat(retiradaQtd);
+    const qtd = parseValorBR(retiradaQtd);
     db.runSync(
       "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao) VALUES (?, ?, ?, ?)",
       [retiradaItem.id, "saida", qtd, retiradaObs || null]
@@ -153,6 +161,35 @@ export default function EstoqueScreen() {
     db.runSync("UPDATE estoque SET quantidade_atual = quantidade_atual - ? WHERE id = ?", [qtd, retiradaItem.id]);
     setRetiradaQtd(""); setRetiradaObs(""); setModalRetirada(false);
     load();
+  }
+
+  async function compartilharEstoque() {
+    setSincronizando(true);
+    setSyncMsg("");
+    try {
+      await exportarEstoque(empresaNome, itens);
+      setSyncMsg("Estoque compartilhado.");
+    } catch (e) {
+      setSyncMsg(e instanceof Error ? e.message : "Não foi possível compartilhar o estoque.");
+    } finally {
+      setSincronizando(false);
+    }
+  }
+
+  async function importarEstoqueArquivo() {
+    setSincronizando(true);
+    setSyncMsg("");
+    try {
+      const resultado = await importarEstoque(empresaId, itens);
+      if (!resultado.ok) {
+        if (!resultado.cancelado) setSyncMsg(resultado.erro);
+        return;
+      }
+      setSyncMsg(`Estoque atualizado: ${resultado.atualizados} ajustado(s), ${resultado.criados} novo(s), ${resultado.removidos} removido(s).`);
+      load();
+    } finally {
+      setSincronizando(false);
+    }
   }
 
   const itensFiltrados = itens.filter(i => i.nome.toLowerCase().includes(busca.toLowerCase()));
@@ -180,6 +217,21 @@ export default function EstoqueScreen() {
             <Text style={[s.kpiValor, { color: abaixoMinimo.length > 0 ? C.DANGER : C.TEXT }]}>{abaixoMinimo.length}</Text>
           </View>
           <View style={[s.kpi, { flex: 1 }]}><Text style={s.kpiLabel}>Valor total</Text><Text style={[s.kpiValor, { fontSize: 13 }]}>{fmt(valorTotal)}</Text></View>
+        </View>
+
+        {/* Sincronizar entre aparelhos */}
+        <View style={s.syncCard}>
+          <Text style={s.syncTitle}>🔄 Sincronizar estoque entre aparelhos</Text>
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <TouchableOpacity style={[s.syncBtn, { flex: 1 }]} onPress={compartilharEstoque} disabled={sincronizando}>
+              <Text style={s.syncBtnText}>📤 Exportar / Compartilhar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[s.syncBtn, { flex: 1 }]} onPress={importarEstoqueArquivo} disabled={sincronizando}>
+              <Text style={s.syncBtnText}>📥 Importar atualização</Text>
+            </TouchableOpacity>
+          </View>
+          {sincronizando && <ActivityIndicator style={{ marginTop: 8 }} color={C.BRAND} />}
+          {!!syncMsg && <Text style={s.syncMsg}>{syncMsg}</Text>}
         </View>
 
         {abaixoMinimo.length > 0 && (
@@ -381,7 +433,7 @@ export default function EstoqueScreen() {
               <Field label={`Quantidade a retirar (${retiradaItem?.unidade ?? ""})`} value={retiradaQtd} onChange={setRetiradaQtd} keyboard="decimal-pad" />
               {retiradaQtd ? (
                 <Text style={{ fontSize: 13, color: C.TEXT_MUTED, textAlign: "center" }}>
-                  Após retirada: {Math.max(0, (retiradaItem?.quantidade_atual ?? 0) - parseFloat(retiradaQtd || "0")).toFixed(2)} {retiradaItem?.unidade}
+                  Após retirada: {Math.max(0, (retiradaItem?.quantidade_atual ?? 0) - parseValorBR(retiradaQtd || "0")).toFixed(2)} {retiradaItem?.unidade}
                 </Text>
               ) : null}
               <Field label="Motivo / observação (opcional)" value={retiradaObs} onChange={setRetiradaObs} />
@@ -453,4 +505,9 @@ const s = StyleSheet.create({
   empty: { alignItems: "center", padding: 40 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyText: { fontSize: 15, color: C.TEXT_MUTED },
+  syncCard: { backgroundColor: C.CARD, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: C.BORDER, gap: 10 },
+  syncTitle: { fontSize: 13, fontWeight: "700", color: C.TEXT },
+  syncBtn: { backgroundColor: C.BG, borderWidth: 1, borderColor: C.BORDER, borderRadius: 10, paddingVertical: 9, alignItems: "center" },
+  syncBtnText: { fontSize: 12, fontWeight: "700", color: C.TEXT },
+  syncMsg: { fontSize: 12, color: C.SUCCESS, backgroundColor: "#f0fdf4", borderRadius: 10, padding: 8, textAlign: "center" },
 });

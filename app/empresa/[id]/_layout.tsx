@@ -7,6 +7,8 @@ export default function EmpresaLayout() {
       <Stack.Screen name="precificacao" />
       <Stack.Screen name="financeiro" />
       <Stack.Screen name="estoque" />
+      <Stack.Screen name="configuracoes" />
+      <Stack.Screen name="fornecedores" />
     </Stack>
   );
 }

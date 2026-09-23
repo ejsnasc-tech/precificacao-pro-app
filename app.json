@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Precificação Pro",
+    "name": "Top Precificação",
     "slug": "precificacao-pro-app",
-    "version": "1.0.0",
+    "version": "1.0.6",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,11 +12,12 @@
       "bundleIdentifier": "com.ejsnasc.precificacaopro",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
-      }
+      },
+      "buildNumber": "21"
     },
     "android": {
       "package": "com.ejsnasc.precificacaopro",
-      "versionCode": 1,
+      "versionCode": 21,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#4f46e5"
@@ -37,7 +38,9 @@
           "color": "#4f46e5",
           "sounds": []
         }
-      ]
+      ],
+      "expo-secure-store",
+      "expo-iap"
     ],
     "experiments": {
       "typedRoutes": true
@@ -48,6 +51,12 @@
         "projectId": "c3b33558-8e69-4ba5-97d6-c5af33e6d3cf"
       }
     },
-    "owner": "ejsnasc"
+    "owner": "ejsnasc",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/c3b33558-8e69-4ba5-97d6-c5af33e6d3cf"
+    }
   }
 }

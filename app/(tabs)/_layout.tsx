@@ -1,7 +1,10 @@
 import { Tabs } from "expo-router";
 import { BRAND, TEXT_MUTED, CARD, BORDER } from "@/constants/colors";
+import { useLicenca } from "@/lib/LicencaContext";
 
 export default function TabsLayout() {
+  const { ehColaborador } = useLicenca();
+
   return (
     <Tabs
       screenOptions={{
@@ -23,7 +26,8 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="financeiro-pessoal"
-        options={{ title: "Finanças", tabBarIcon: ({ color }) => <TabIcon emoji="💰" color={color} /> }}
+        // Finanças pessoais é área do dono — colaborador não acessa.
+        options={ehColaborador ? { href: null } : { title: "Finanças Pessoais", tabBarIcon: ({ color }) => <TabIcon emoji="💰" color={color} /> }}
       />
     </Tabs>
   );

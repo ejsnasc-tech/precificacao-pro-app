@@ -1,0 +1,20 @@
+=== Cole essa resposta em "Responda à equipe de revisão de apps" (App Store Connect) ===
+
+Thank you for reviewing Top Precificação. Here is detailed information about our business model, answering each question:
+
+1. Who are the users that will use the paid features in the app?
+Small business owners and their employees (retail shops, bakeries, restaurants, food trucks, etc.) who use the app to manage their own business operations: pricing calculations, inventory control, supplier quotes, and financial reports. This is a professional/business (B2B) productivity tool, not a consumer entertainment app.
+
+2. Where can users purchase the features that can be accessed in the app?
+Access is purchased outside the app, directly from us via WhatsApp or our website (https://topprecificacao.com.br). This is the same purchase channel used for our Web, Windows, and Mac versions of the same service — the app is one more client for a single multiplatform account, not a separate product.
+
+3. What specific types of previously purchased features can a user access in the app?
+A single license code unlocks the entire business management service across all platforms (Web, Windows, Mac, Android, iOS): pricing calculator, inventory management, supplier quotes, financial reports (DRE), and personal finance tracking. It is one unified account/service, not app-specific digital goods or content.
+
+4. What paid content, subscriptions, or features are unlocked within the app that do not use In-App Purchase?
+The entire app is unlocked as a whole by entering the license code on the activation screen — there are no additional purchases, upgrades, or content tiers available from inside the app. The app itself has no purchase flow, no pricing displayed, and no way to buy or unlock anything from within it. The license must be acquired beforehand through our external channels (WhatsApp/website), exactly like a subscription to a multiplatform SaaS service (e.g., similar to how a Dropbox or Slack subscription purchased on the web unlocks their respective mobile apps).
+
+5. Are the enterprise services in your app sold to single users, consumers, or for family use?
+Sold to individual business owners for professional/business use (B2B), not to consumers or families. The business owner may optionally invite a limited number of collaborators (employees) with restricted access to specific areas of their own business account (e.g., only Inventory), similar to a business tool with team member seats — this is not a consumer or family-sharing feature.
+
+We believe this qualifies under Guideline 3.1.3(b) (Multiplatform Services), as Top Precificação is a companion app to an existing multiplatform business service, and the app contains no purchase flow of its own. Please let us know if any additional information is needed.

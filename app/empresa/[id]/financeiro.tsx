@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import {
   View, Text, StyleSheet, TouchableOpacity, ScrollView,
   TextInput, Alert, Modal, KeyboardAvoidingView, Platform,
@@ -7,24 +7,48 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getDB } from "@/lib/db";
 import * as C from "@/constants/colors";
+import { parseValorBR } from "@/lib/numero";
+import CalendarioPicker from "@/components/CalendarioPicker";
 
 interface Lancamento {
   id: number; tipo: string; valor: number; descricao: string;
-  categoria: string; data: string; obs: string;
+  categoria: string; data: string; obs: string; forma_pagamento: string | null;
 }
 interface Socio { nome: string; percentual: number; }
+interface ConfigDRE {
+  regime: string; anexo: string; aliquota_custom: number;
+  taxa_debito: number; taxa_credito: number; taxa_pix: number; taxa_dinheiro: number;
+}
 
-type Aba = "dashboard" | "lancamentos" | "socios";
+const FORMAS_PAGAMENTO = [
+  { key: "dinheiro", label: "💵 Dinheiro" },
+  { key: "debito", label: "💳 Débito" },
+  { key: "credito", label: "💳 Crédito" },
+  { key: "pix", label: "📱 Pix" },
+] as const;
+
+type Aba = "dashboard" | "lancamentos" | "socios" | "dre";
 
 const CATEGORIAS_COMPRA = ["insumos", "embalagens", "limpeza", "pessoal", "equipamentos", "outros"];
+const CATEGORIAS_CMV = ["insumos", "embalagens"];
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const fmtPct = (v: number) => v.toFixed(1) + "%";
 
-function maskData(raw: string): string {
-  const digits = raw.replace(/\D/g, "").slice(0, 8);
-  if (digits.length <= 2) return digits;
-  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
-  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+const ALIQ: Record<string, number> = {
+  "simples_nacional-I": 4.0, "simples_nacional-II": 4.5, "simples_nacional-III": 6.0,
+  "simples_nacional-IV": 6.0, "simples_nacional-V": 15.5, "simples_nacional-VI": 16.93,
+  lucro_presumido: 13.33, lucro_real: 34, mei: 0,
+};
+
+function getAliquotaDRE(config: ConfigDRE): number {
+  if (config.regime === "custom") return config.aliquota_custom;
+  if (config.regime === "simples_nacional") {
+    if (config.anexo === "custom") return config.aliquota_custom;
+    return ALIQ[`simples_nacional-${config.anexo}`] ?? 4.0;
+  }
+  return ALIQ[config.regime] ?? 0;
 }
+
 function displayToISO(d: string): string {
   const p = d.split("/");
   return p.length === 3 && p[2].length === 4 ? `${p[2]}-${p[1]}-${p[0]}` : "";
@@ -42,6 +66,7 @@ export default function FinanceiroScreen() {
   const [aba, setAba] = useState<Aba>("dashboard");
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [socios, setSocios] = useState<Socio[]>([]);
+  const [configDRE, setConfigDRE] = useState<ConfigDRE | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [tipo, setTipo] = useState<"venda" | "compra">("venda");
   const [valor, setValor] = useState("");
@@ -49,6 +74,7 @@ export default function FinanceiroScreen() {
   const [categoria, setCategoria] = useState("insumos");
   const [data, setData] = useState(hojeDisplay());
   const [obs, setObs] = useState("");
+  const [formaPagamento, setFormaPagamento] = useState<string>("dinheiro");
   const [filtroMes, setFiltroMes] = useState(new Date().toISOString().slice(0, 7));
 
   const load = useCallback(() => {
@@ -62,6 +88,10 @@ export default function FinanceiroScreen() {
       "SELECT dados FROM socios WHERE empresa_id = ?", [empresaId]
     );
     setSocios(socRow ? JSON.parse(socRow.dados) as Socio[] : []);
+    const cfgRow = db.getFirstSync<ConfigDRE>(
+      "SELECT regime, anexo, aliquota_custom, taxa_debito, taxa_credito, taxa_pix, taxa_dinheiro FROM configuracoes_empresa WHERE empresa_id = ?", [empresaId]
+    );
+    setConfigDRE(cfgRow ?? null);
   }, [empresaId, filtroMes]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -75,14 +105,33 @@ export default function FinanceiroScreen() {
     valor: lancamentos.filter(l => l.tipo === "compra" && l.categoria === cat).reduce((a, l) => a + l.valor, 0),
   })).filter(x => x.valor > 0);
 
+  // ── DRE ──
+  const dreCMV = lancamentos.filter(l => l.tipo === "compra" && CATEGORIAS_CMV.includes(l.categoria)).reduce((a, l) => a + l.valor, 0);
+  const dreCustosFixos = lancamentos.filter(l => l.tipo === "compra" && !CATEGORIAS_CMV.includes(l.categoria)).reduce((a, l) => a + l.valor, 0);
+  const dreAliquota = configDRE ? getAliquotaDRE(configDRE) : 0;
+  const dreImpostos = totalVendas * (dreAliquota / 100);
+  const vendasPorForma = (forma: string) => lancamentos.filter(l => l.tipo === "venda" && l.forma_pagamento === forma).reduce((a, l) => a + l.valor, 0);
+  const dreTaxaCartao = configDRE
+    ? vendasPorForma("debito") * (configDRE.taxa_debito / 100)
+      + vendasPorForma("credito") * (configDRE.taxa_credito / 100)
+      + vendasPorForma("pix") * (configDRE.taxa_pix / 100)
+    : 0;
+  const dreMargemContribuicao = totalVendas - dreImpostos - dreTaxaCartao - dreCMV;
+  const dreResultado = dreMargemContribuicao - dreCustosFixos;
+  const drePct = (v: number) => (totalVendas > 0 ? (v / totalVendas) * 100 : 0);
+  const dreMargemBruta = totalVendas > 0 ? ((totalVendas - dreCMV) / totalVendas) * 100 : 0;
+  const dreMargemContribuicaoPct = drePct(dreMargemContribuicao);
+  const dreMargemLiquida = drePct(dreResultado);
+  const drePontoEquilibrio = dreMargemContribuicaoPct > 0 ? dreCustosFixos / (dreMargemContribuicaoPct / 100) : null;
+
   function salvarLancamento() {
-    if (!valor || parseFloat(valor) <= 0) { Alert.alert("Atenção", "Informe um valor válido."); return; }
+    if (!valor || parseValorBR(valor) <= 0) { Alert.alert("Atenção", "Informe um valor válido."); return; }
     const dataISO = displayToISO(data) || data;
     getDB().runSync(
-      "INSERT INTO lancamentos (empresa_id, tipo, valor, descricao, categoria, data, obs) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [empresaId, tipo, parseFloat(valor), descricao.trim(), tipo === "compra" ? categoria : "venda", dataISO, obs.trim()]
+      "INSERT INTO lancamentos (empresa_id, tipo, valor, descricao, categoria, data, obs, forma_pagamento) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [empresaId, tipo, parseValorBR(valor), descricao.trim(), tipo === "compra" ? categoria : "venda", dataISO, obs.trim(), tipo === "venda" ? formaPagamento : null]
     );
-    setValor(""); setDescricao(""); setObs(""); setData(hojeDisplay()); setCategoria("insumos");
+    setValor(""); setDescricao(""); setObs(""); setData(hojeDisplay()); setCategoria("insumos"); setFormaPagamento("dinheiro");
     setModalVisible(false);
     load();
   }
@@ -137,9 +186,9 @@ export default function FinanceiroScreen() {
 
       {/* Abas */}
       <View style={s.abaBar}>
-        {([["dashboard", "📊 Dashboard"], ["lancamentos", "📋 Lançamentos"], ["socios", "👥 Sócios"]] as const).map(([k, label]) => (
+        {([["dashboard", "📊 Dashboard"], ["lancamentos", "📋 Lançamentos"], ["dre", "🧾 DRE"], ["socios", "👥 Sócios"]] as const).map(([k, label]) => (
           <TouchableOpacity key={k} onPress={() => setAba(k)} style={[s.abaBtn, aba === k && s.abaBtnActive]}>
-            <Text style={[s.abaBtnText, aba === k && s.abaBtnTextActive]}>{label}</Text>
+            <Text style={[s.abaBtnText, aba === k && s.abaBtnTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{label}</Text>
           </TouchableOpacity>
         ))}
       </View>
@@ -232,7 +281,9 @@ export default function FinanceiroScreen() {
                   <View style={[s.lancDot, { backgroundColor: l.tipo === "venda" ? C.SUCCESS : C.DANGER }]} />
                   <View style={{ flex: 1 }}>
                     <Text style={s.lancDesc}>{l.descricao || (l.tipo === "venda" ? "Venda" : l.categoria)}</Text>
-                    <Text style={s.lancData}>{new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR")} · {l.categoria}</Text>
+                    <Text style={s.lancData}>
+                      {new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR")} · {l.tipo === "venda" ? (FORMAS_PAGAMENTO.find(f => f.key === l.forma_pagamento)?.label ?? l.categoria) : l.categoria}
+                    </Text>
                     {l.obs ? <Text style={s.lancObs}>{l.obs}</Text> : null}
                   </View>
                   <Text style={[s.lancValor, { color: l.tipo === "venda" ? C.SUCCESS : C.DANGER }]}>
@@ -247,6 +298,51 @@ export default function FinanceiroScreen() {
           </>
         )}
 
+        {/* ── DRE ── */}
+        {aba === "dre" && (
+          <>
+            {!configDRE && (
+              <View style={s.avisoBox}>
+                <Text style={s.avisoText}>⚠️ Configure o regime tributário na tela de Precificação para os impostos entrarem no cálculo.</Text>
+              </View>
+            )}
+
+            <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+              <View style={[s.dreKpi, { backgroundColor: "#d1fae5" }]}>
+                <Text style={s.kpiLabel}>Margem Bruta</Text>
+                <Text style={[s.kpiValor, { color: "#065f46", fontSize: 18 }]}>{fmtPct(dreMargemBruta)}</Text>
+              </View>
+              <View style={[s.dreKpi, { backgroundColor: "#e0f2fe" }]}>
+                <Text style={s.kpiLabel}>Margem Contrib.</Text>
+                <Text style={[s.kpiValor, { color: "#075985", fontSize: 18 }]}>{fmtPct(dreMargemContribuicaoPct)}</Text>
+              </View>
+              <View style={[s.dreKpi, { backgroundColor: dreResultado >= 0 ? "#dbeafe" : "#fee2e2" }]}>
+                <Text style={s.kpiLabel}>Margem Líquida</Text>
+                <Text style={[s.kpiValor, { color: dreResultado >= 0 ? "#1e40af" : C.DANGER, fontSize: 18 }]}>{fmtPct(dreMargemLiquida)}</Text>
+              </View>
+              <View style={[s.dreKpi, { backgroundColor: "#ede9fe" }]}>
+                <Text style={s.kpiLabel}>Ponto de Equilíbrio</Text>
+                <Text style={[s.kpiValor, { color: "#5b21b6", fontSize: 15 }]}>{drePontoEquilibrio !== null ? fmt(drePontoEquilibrio) : "—"}</Text>
+              </View>
+            </View>
+
+            <View style={s.card}>
+              <DreLinha label="Venda total" valor={fmt(totalVendas)} pct={fmtPct(drePct(totalVendas))} destaque />
+              <DreLinha label={`(-) Impostos${configDRE ? ` (${dreAliquota.toFixed(2)}%)` : ""}`} valor={fmt(dreImpostos)} pct={fmtPct(drePct(dreImpostos))} cor={C.DANGER} />
+              <DreLinha label="(-) Taxa de cartão/maquininha" valor={fmt(dreTaxaCartao)} pct={fmtPct(drePct(dreTaxaCartao))} cor={C.DANGER} />
+              <DreLinha label="(-) CMV (insumos + embalagens)" valor={fmt(dreCMV)} pct={fmtPct(drePct(dreCMV))} cor={C.DANGER} />
+              <DreLinha label="(=) Margem de Contribuição" valor={fmt(dreMargemContribuicao)} pct={fmtPct(dreMargemContribuicaoPct)} destaque cor="#075985" fundo="#f0f9ff" />
+              <DreLinha label="(-) Custos fixos" valor={fmt(dreCustosFixos)} pct={fmtPct(drePct(dreCustosFixos))} cor={C.DANGER} />
+              <DreLinha label="(=) Resultado" valor={fmt(dreResultado)} pct={fmtPct(dreMargemLiquida)} destaque
+                cor={dreResultado >= 0 ? "#1e40af" : C.DANGER} fundo={dreResultado >= 0 ? "#eff6ff" : "#fef2f2"} ultima />
+            </View>
+
+            <Text style={s.dreNota}>
+              CMV e custos fixos vêm das categorias marcadas em cada gasto lançado. Impostos são calculados sobre a venda total usando o regime tributário configurado em Precificação → Configurações.
+            </Text>
+          </>
+        )}
+
         {/* ── SÓCIOS ── */}
         {aba === "socios" && (
           <>
@@ -257,8 +353,7 @@ export default function FinanceiroScreen() {
                   <View style={{ flexDirection: "row", gap: 8, marginBottom: 4 }}>
                     <TextInput style={[s.input, { flex: 1 }]} value={soc.nome} onChangeText={(v) => updateSocio(i, "nome", v)}
                       placeholder={`Nome do sócio ${i + 1}`} placeholderTextColor={C.TEXT_MUTED} />
-                    <TextInput style={[s.input, { width: 70 }]} value={String(soc.percentual)} onChangeText={(v) => updateSocio(i, "percentual", v)}
-                      keyboardType="decimal-pad" placeholder="%" placeholderTextColor={C.TEXT_MUTED} />
+                    <CampoPercentual value={soc.percentual} onChange={(v) => updateSocio(i, "percentual", String(v))} />
                     <TouchableOpacity onPress={() => removeSocio(i)} style={{ justifyContent: "center", padding: 4 }}>
                       <Text style={{ color: C.DANGER }}>✕</Text>
                     </TouchableOpacity>
@@ -330,11 +425,22 @@ export default function FinanceiroScreen() {
                   </>
                 )}
 
+                {tipo === "venda" && (
+                  <>
+                    <Text style={[s.configLabel, { marginTop: 12 }]}>Forma de pagamento</Text>
+                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                      {FORMAS_PAGAMENTO.map((f) => (
+                        <TouchableOpacity key={f.key} onPress={() => setFormaPagamento(f.key)}
+                          style={[s.unidBtn, formaPagamento === f.key && s.unidBtnActive]}>
+                          <Text style={[s.unidText, formaPagamento === f.key && { color: "#fff" }]}>{f.label}</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </>
+                )}
+
                 <Text style={[s.configLabel, { marginTop: 12 }]}>Data</Text>
-                <TextInput style={s.input} value={data}
-                  onChangeText={v => setData(maskData(v))}
-                  placeholder="DD/MM/AAAA" placeholderTextColor={C.TEXT_MUTED}
-                  keyboardType="number-pad" />
+                <CalendarioPicker value={data} onChange={setData} />
 
                 <Text style={[s.configLabel, { marginTop: 12 }]}>Observação (opcional)</Text>
                 <TextInput style={s.input} value={obs} onChangeText={setObs}
@@ -352,6 +458,46 @@ export default function FinanceiroScreen() {
   );
 }
 
+function DreLinha({ label, valor, pct, cor, destaque, fundo, ultima }: {
+  label: string; valor: string; pct: string; cor?: string; destaque?: boolean; fundo?: string; ultima?: boolean;
+}) {
+  return (
+    <View style={[s.dreRow, fundo ? { backgroundColor: fundo, marginHorizontal: -16, paddingHorizontal: 16, borderRadius: 8 } : null, ultima && { borderBottomWidth: 0 }]}>
+      <Text style={[s.dreLabel, destaque && { fontWeight: "800", color: cor ?? C.TEXT }]}>{label}</Text>
+      <View style={{ alignItems: "flex-end" }}>
+        <Text style={[s.dreValor, { color: cor ?? C.TEXT }, destaque && { fontWeight: "800" }]}>{valor}</Text>
+        <Text style={s.drePctText}>{pct}</Text>
+      </View>
+    </View>
+  );
+}
+
+// Buffer de texto próprio — se resincronizasse a cada tecla, a vírgula era
+// apagada assim que digitada (antes do próximo dígito vir).
+function CampoPercentual({ value, onChange }: { value: number; onChange: (v: number) => void }) {
+  const [texto, setTexto] = useState(() => String(value).replace(".", ","));
+  const ultimoEmitido = useRef(value);
+
+  useEffect(() => {
+    if (value !== ultimoEmitido.current) {
+      setTexto(String(value).replace(".", ","));
+      ultimoEmitido.current = value;
+    }
+  }, [value]);
+
+  function handleChange(v: string) {
+    setTexto(v);
+    const num = parseValorBR(v);
+    ultimoEmitido.current = num;
+    onChange(num);
+  }
+
+  return (
+    <TextInput style={[s.input, { width: 70 }]} value={texto} onChangeText={handleChange}
+      keyboardType="decimal-pad" placeholder="%" placeholderTextColor={C.TEXT_MUTED} />
+  );
+}
+
 const s = StyleSheet.create({
   safe: { flex: 1, backgroundColor: C.BG },
   header: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 16, backgroundColor: C.CARD, borderBottomWidth: 1, borderBottomColor: C.BORDER },
@@ -361,7 +507,7 @@ const s = StyleSheet.create({
   btnNovo: { backgroundColor: C.BRAND, paddingHorizontal: 14, paddingVertical: 7, borderRadius: 10 },
   btnNovoText: { color: "#fff", fontWeight: "700", fontSize: 13 },
   abaBar: { flexDirection: "row", backgroundColor: C.CARD, borderBottomWidth: 1, borderBottomColor: C.BORDER },
-  abaBtn: { flex: 1, alignItems: "center", paddingVertical: 11, borderBottomWidth: 2, borderBottomColor: "transparent" },
+  abaBtn: { flex: 1, alignItems: "center", paddingVertical: 11, paddingHorizontal: 2, borderBottomWidth: 2, borderBottomColor: "transparent" },
   abaBtnActive: { borderBottomColor: C.BRAND },
   abaBtnText: { fontSize: 12, fontWeight: "700", color: C.TEXT_MUTED },
   abaBtnTextActive: { color: C.BRAND },
@@ -374,7 +520,7 @@ const s = StyleSheet.create({
   kpiValor: { fontSize: 22, fontWeight: "900", marginTop: 4 },
   card: { backgroundColor: C.CARD, borderRadius: 16, padding: 16 },
   cardTitle: { fontSize: 13, fontWeight: "700", color: C.TEXT_MUTED, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 12 },
-  lancCard: { backgroundColor: C.CARD, borderRadius: 14, padding: 14, flexDirection: "row", alignItems: "center", gap: 10, borderWidth: 1, borderColor: C.BORDER },
+  lancCard: { backgroundColor: C.CARD, borderRadius: 16, padding: 16, flexDirection: "row", alignItems: "center", gap: 10 },
   lancDot: { width: 10, height: 10, borderRadius: 5, flexShrink: 0 },
   lancDesc: { fontSize: 14, fontWeight: "700", color: C.TEXT },
   lancData: { fontSize: 12, color: C.TEXT_MUTED, marginTop: 2, textTransform: "capitalize" },
@@ -399,4 +545,12 @@ const s = StyleSheet.create({
   empty: { alignItems: "center", padding: 40 },
   emptyEmoji: { fontSize: 48, marginBottom: 12 },
   emptyText: { fontSize: 15, color: C.TEXT_MUTED },
+  dreKpi: { flexBasis: "47%", flexGrow: 1, borderRadius: 14, padding: 12 },
+  avisoBox: { backgroundColor: "#fffbeb", borderRadius: 12, padding: 12 },
+  avisoText: { color: "#b45309", fontSize: 12, lineHeight: 17 },
+  dreRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: C.BORDER },
+  dreLabel: { fontSize: 13, color: C.TEXT, flex: 1, paddingRight: 8 },
+  dreValor: { fontSize: 14, fontWeight: "700" },
+  drePctText: { fontSize: 11, color: C.TEXT_MUTED, marginTop: 1 },
+  dreNota: { fontSize: 11, color: C.TEXT_MUTED, lineHeight: 16, paddingHorizontal: 4 },
 });
