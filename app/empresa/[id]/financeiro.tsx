@@ -326,6 +326,30 @@ export default function FinanceiroScreen() {
               </View>
             </View>
 
+            {(vendasPorForma("dinheiro") + vendasPorForma("debito") + vendasPorForma("credito") + vendasPorForma("pix")) > 0 && (
+              <View style={s.card}>
+                <Text style={s.cardTitle}>Vendas por forma de pagamento</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                  <View style={[s.dreKpi, { backgroundColor: "#f8fafc", flexBasis: "47%" }]}>
+                    <Text style={s.kpiLabel}>💵 Dinheiro</Text>
+                    <Text style={[s.kpiValor, { fontSize: 15 }]}>{fmt(vendasPorForma("dinheiro"))}</Text>
+                  </View>
+                  <View style={[s.dreKpi, { backgroundColor: "#f8fafc", flexBasis: "47%" }]}>
+                    <Text style={s.kpiLabel}>💳 Débito{configDRE ? ` (${configDRE.taxa_debito.toFixed(2)}%)` : ""}</Text>
+                    <Text style={[s.kpiValor, { fontSize: 15 }]}>{fmt(vendasPorForma("debito"))}</Text>
+                  </View>
+                  <View style={[s.dreKpi, { backgroundColor: "#f8fafc", flexBasis: "47%" }]}>
+                    <Text style={s.kpiLabel}>💳 Crédito{configDRE ? ` (${configDRE.taxa_credito.toFixed(2)}%)` : ""}</Text>
+                    <Text style={[s.kpiValor, { fontSize: 15 }]}>{fmt(vendasPorForma("credito"))}</Text>
+                  </View>
+                  <View style={[s.dreKpi, { backgroundColor: "#f8fafc", flexBasis: "47%" }]}>
+                    <Text style={s.kpiLabel}>📱 Pix{configDRE ? ` (${configDRE.taxa_pix.toFixed(2)}%)` : ""}</Text>
+                    <Text style={[s.kpiValor, { fontSize: 15 }]}>{fmt(vendasPorForma("pix"))}</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
             <View style={s.card}>
               <DreLinha label="Venda total" valor={fmt(totalVendas)} pct={fmtPct(drePct(totalVendas))} destaque />
               <DreLinha label={`(-) Impostos${configDRE ? ` (${dreAliquota.toFixed(2)}%)` : ""}`} valor={fmt(dreImpostos)} pct={fmtPct(drePct(dreImpostos))} cor={C.DANGER} />
