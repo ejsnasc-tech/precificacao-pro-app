@@ -1,0 +1,36 @@
+name: Build iOS (local, sem cota da EAS)
+
+# Builda o app iOS de dentro de um Mac do próprio GitHub (grátis, ilimitado
+# em repositório público), usando "eas build --local" — usa as mesmas
+# credenciais já configuradas na Expo, mas roda o Xcode aqui, sem consumir
+# a cota mensal de build da nuvem da EAS.
+on:
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependências
+        run: npm ci
+
+      - name: Instalar EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Build iOS local (produção)
+        run: eas build --platform ios --profile production --local --non-interactive --output build.ipa
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publicar o .ipa como artefato
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: build.ipa
+          retention-days: 14
