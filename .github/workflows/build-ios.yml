@@ -3,9 +3,20 @@ name: Build iOS (local, sem cota da EAS)
 # Builda o app iOS de dentro de um Mac do próprio GitHub (grátis, ilimitado
 # em repositório público), usando "eas build --local" — usa as mesmas
 # credenciais já configuradas na Expo, mas roda o Xcode aqui, sem consumir
-# a cota mensal de build da nuvem da EAS.
+# a cota mensal de build da nuvem da EAS. Opcionalmente já envia pra Apple
+# no mesmo job, evitando ter que baixar o .ipa manualmente (artefato do
+# GitHub Actions exige login mesmo em repositório público).
 on:
   workflow_dispatch:
+    inputs:
+      enviar_para_apple:
+        description: "Enviar pra Apple (App Store Connect) depois de buildar?"
+        required: true
+        default: "nao"
+        type: choice
+        options:
+          - "nao"
+          - "sim"
 
 jobs:
   build-ios:
@@ -34,3 +45,13 @@ jobs:
           name: ios-ipa
           path: build.ipa
           retention-days: 14
+
+      - name: Recriar a chave da API da Apple
+        if: github.event.inputs.enviar_para_apple == 'sim'
+        run: echo "${{ secrets.ASC_API_KEY_BASE64 }}" | base64 -d > AuthKey_WGGFMT4Z8A.p8
+
+      - name: Enviar pra Apple (App Store Connect)
+        if: github.event.inputs.enviar_para_apple == 'sim'
+        run: eas submit --platform ios --path build.ipa --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
