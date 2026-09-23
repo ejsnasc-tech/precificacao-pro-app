@@ -129,7 +129,7 @@ export default function FinanceiroScreen() {
     const dataISO = displayToISO(data) || data;
     getDB().runSync(
       "INSERT INTO lancamentos (empresa_id, tipo, valor, descricao, categoria, data, obs, forma_pagamento) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [empresaId, tipo, parseValorBR(valor), descricao.trim(), tipo === "compra" ? categoria : "venda", dataISO, obs.trim(), tipo === "venda" ? formaPagamento : null]
+      [empresaId, tipo, parseValorBR(valor), descricao.trim(), tipo === "compra" ? categoria : "venda", dataISO, obs.trim(), formaPagamento]
     );
     setValor(""); setDescricao(""); setObs(""); setData(hojeDisplay()); setCategoria("insumos"); setFormaPagamento("dinheiro");
     setModalVisible(false);
@@ -282,7 +282,7 @@ export default function FinanceiroScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={s.lancDesc}>{l.descricao || (l.tipo === "venda" ? "Venda" : l.categoria)}</Text>
                     <Text style={s.lancData}>
-                      {new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR")} · {l.tipo === "venda" ? (FORMAS_PAGAMENTO.find(f => f.key === l.forma_pagamento)?.label ?? l.categoria) : l.categoria}
+                      {new Date(l.data + "T12:00:00").toLocaleDateString("pt-BR")} · {l.tipo === "compra" ? `${l.categoria} · ` : ""}{FORMAS_PAGAMENTO.find(f => f.key === l.forma_pagamento)?.label ?? "—"}
                     </Text>
                     {l.obs ? <Text style={s.lancObs}>{l.obs}</Text> : null}
                   </View>
@@ -449,19 +449,15 @@ export default function FinanceiroScreen() {
                   </>
                 )}
 
-                {tipo === "venda" && (
-                  <>
-                    <Text style={[s.configLabel, { marginTop: 12 }]}>Forma de pagamento</Text>
-                    <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
-                      {FORMAS_PAGAMENTO.map((f) => (
-                        <TouchableOpacity key={f.key} onPress={() => setFormaPagamento(f.key)}
-                          style={[s.unidBtn, formaPagamento === f.key && s.unidBtnActive]}>
-                          <Text style={[s.unidText, formaPagamento === f.key && { color: "#fff" }]}>{f.label}</Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </>
-                )}
+                <Text style={[s.configLabel, { marginTop: 12 }]}>Forma de pagamento</Text>
+                <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 }}>
+                  {FORMAS_PAGAMENTO.map((f) => (
+                    <TouchableOpacity key={f.key} onPress={() => setFormaPagamento(f.key)}
+                      style={[s.unidBtn, formaPagamento === f.key && s.unidBtnActive]}>
+                      <Text style={[s.unidText, formaPagamento === f.key && { color: "#fff" }]}>{f.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
 
                 <Text style={[s.configLabel, { marginTop: 12 }]}>Data</Text>
                 <CalendarioPicker value={data} onChange={setData} />
