@@ -39,6 +39,8 @@ google-service-account.json
 # builds locais gerados (WSL/EAS local) — não são código-fonte
 *.aab
 *.apk
+*.ipa
+ios-ipa.zip
 
 # typescript
 *.tsbuildinfo
