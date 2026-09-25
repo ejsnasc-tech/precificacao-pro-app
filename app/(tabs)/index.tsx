@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import {
-  View, Text, StyleSheet, TouchableOpacity, FlatList,
+  View, Text, StyleSheet, TouchableOpacity, FlatList, Linking,
   TextInput, Modal, Pressable, Alert, ActivityIndicator,
 } from "react-native";
 import { useRouter, useFocusEffect } from "expo-router";
@@ -119,6 +119,12 @@ export default function EmpresasScreen() {
         <View style={s.headerActionsRow}>
           <TouchableOpacity style={s.pillBtn} onPress={() => router.push("/backup")}>
             <Text style={s.pillBtnText}>💾 Backup</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={s.pillBtn}
+            onPress={() => Linking.openURL("mailto:suporte@topprecificacao.com.br?subject=Sugest%C3%A3o%20ou%20problema%20-%20Top%20Precifica%C3%A7%C3%A3o&body=Descreva%20aqui%20sua%20sugest%C3%A3o%20ou%20o%20problema%20que%20encontrou%3A%0A%0A")}
+          >
+            <Text style={s.pillBtnText}>✉️ Sugestão</Text>
           </TouchableOpacity>
           <TouchableOpacity style={s.pillBtn} onPress={confirmarSair}>
             <Text style={s.pillBtnText}>🚪 Sair</Text>
