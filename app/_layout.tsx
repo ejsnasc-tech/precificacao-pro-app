@@ -8,7 +8,6 @@ import { BRAND, BG } from "@/constants/colors";
 import { useAlertas } from "@/hooks/useAlertas";
 import { LicencaProvider, useLicenca } from "@/lib/LicencaContext";
 import AtivarScreen from "@/components/AtivarScreen";
-import UpdateBanner from "@/components/UpdateBanner";
 
 function AppContent() {
   useAlertas();
@@ -28,7 +27,6 @@ function AppContent() {
 
   return (
     <View style={{ flex: 1 }}>
-      <UpdateBanner />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="(tabs)" />
         <Stack.Screen name="empresa" />
