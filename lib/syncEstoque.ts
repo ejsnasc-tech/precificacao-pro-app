@@ -80,7 +80,17 @@ export async function importarEstoque(empresaId: number, itensAtuais: ItemEstoqu
             "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao) VALUES (?, ?, ?, ?)",
             [principal.id, "ajuste", imp.quantidade_atual, `Importado de backup de estoque (era ${principal.quantidade_atual}, agora ${imp.quantidade_atual})`]
           );
-          db.runSync("UPDATE estoque SET quantidade_atual = ? WHERE id = ?", [imp.quantidade_atual, principal.id]);
+        }
+        const campos: string[] = [];
+        const valores: (string | number)[] = [];
+        if (principal.quantidade_atual !== imp.quantidade_atual) { campos.push("quantidade_atual = ?"); valores.push(imp.quantidade_atual); }
+        if (imp.unidade !== undefined && principal.unidade !== imp.unidade) { campos.push("unidade = ?"); valores.push(imp.unidade); }
+        if (imp.quantidade_minima !== undefined && principal.quantidade_minima !== imp.quantidade_minima) { campos.push("quantidade_minima = ?"); valores.push(imp.quantidade_minima); }
+        if (imp.custo_unitario !== undefined && principal.custo_unitario !== imp.custo_unitario) { campos.push("custo_unitario = ?"); valores.push(imp.custo_unitario); }
+        if (imp.tem_validade !== undefined && principal.tem_validade !== imp.tem_validade) { campos.push("tem_validade = ?"); valores.push(imp.tem_validade); }
+        if (imp.dias_alerta !== undefined && principal.dias_alerta !== imp.dias_alerta) { campos.push("dias_alerta = ?"); valores.push(imp.dias_alerta); }
+        if (campos.length > 0) {
+          db.runSync(`UPDATE estoque SET ${campos.join(", ")} WHERE id = ?`, [...valores, principal.id]);
           atualizados++;
         }
         for (const dup of duplicatas) {
