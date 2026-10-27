@@ -8,11 +8,12 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getDB } from "@/lib/db";
 import * as C from "@/constants/colors";
 import { parseValorBR } from "@/lib/numero";
+import { propagarPrecoCatalogo } from "@/lib/catalogoPreco";
 
 interface Fornecedor { id: number; nome: string; telefone: string; observacoes: string; }
 interface Cotacao {
   id: number; item_nome: string; fornecedor_id: number; preco: number;
-  unidade: string; data_cotacao: string; observacao: string;
+  unidade: string; data_cotacao: string; observacao: string; em_uso?: number | null;
 }
 interface CatalogoItem { id: number; nome: string; unidade: string; custo_por_unidade: number; atualizado_em: string | null; }
 
@@ -73,13 +74,47 @@ export default function FornecedoresScreen() {
     setModalCotacao(true);
   }
 
+  // Marca "c" como a cotação em uso do item e leva o preço pro catálogo e pros
+  // produtos que usam esse ingrediente. Devolve quantos produtos mudaram.
+  function aplicarCotacao(itemNomeAlvo: string, c: { id: number; preco: number; unidade: string }): number {
+    const db = getDB();
+    const chaveItem = itemNomeAlvo.trim().toLowerCase();
+    db.runSync("UPDATE cotacoes SET em_uso = 0 WHERE empresa_id = ? AND LOWER(TRIM(item_nome)) = ? AND id != ?", [empresaId, chaveItem, c.id]);
+    db.runSync("UPDATE cotacoes SET em_uso = 1 WHERE id = ?", [c.id]);
+    const agora = new Date().toISOString();
+    const existente = db
+      .getAllSync<CatalogoItem>("SELECT * FROM catalogo_ingredientes WHERE empresa_id = ?", [empresaId])
+      .find((ci) => ci.nome.trim().toLowerCase() === chaveItem);
+    if (!existente) {
+      db.runSync("INSERT INTO catalogo_ingredientes (empresa_id, nome, unidade, custo_por_unidade, atualizado_em) VALUES (?, ?, ?, ?, ?)",
+        [empresaId, itemNomeAlvo, c.unidade, c.preco, agora]);
+      return 0;
+    }
+    db.runSync("UPDATE catalogo_ingredientes SET custo_por_unidade = ?, unidade = ?, atualizado_em = ? WHERE id = ?",
+      [c.preco, c.unidade, agora, existente.id]);
+    return propagarPrecoCatalogo({
+      empresaId, nomeAntigo: existente.nome, nomeNovo: existente.nome, unidadeNova: c.unidade, custoNovo: c.preco,
+    });
+  }
+
   function salvarCotacao() {
     if (!itemNome.trim() || !fornecedorId || !preco) return;
-    getDB().runSync(
+    const db = getDB();
+    const nome = itemNome.trim();
+    const precoNum = parseValorBR(preco);
+    // Se esse fornecedor já é o que o dono está usando nesse item, o preço novo
+    // dele é a atualização do que já está em uso: aplica sozinho.
+    const emUso = cotacoes.find((x) => x.item_nome.trim().toLowerCase() === nome.toLowerCase() && x.em_uso === 1);
+    const atualizaEmUso = !!emUso && emUso.fornecedor_id === fornecedorId;
+    const res = db.runSync(
       "INSERT INTO cotacoes (empresa_id, item_nome, fornecedor_id, preco, unidade, data_cotacao, observacao) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [empresaId, itemNome.trim(), fornecedorId, parseValorBR(preco), unidade, dataCotacao, obsCotacao.trim()]
+      [empresaId, nome, fornecedorId, precoNum, unidade, dataCotacao, obsCotacao.trim()]
     );
     setModalCotacao(false);
+    if (atualizaEmUso) {
+      const n = aplicarCotacao(nome, { id: res.lastInsertRowId, preco: precoNum, unidade });
+      if (n > 0) Alert.alert("✅", `Preço atualizado também em ${n} produto${n > 1 ? "s" : ""}.`);
+    }
     load();
   }
 
@@ -91,17 +126,10 @@ export default function FornecedoresScreen() {
   }
 
   function usarPreco(itemNomeAlvo: string, c: Cotacao) {
-    const db = getDB();
-    const existente = catalogo.find((ci) => ci.nome.trim().toLowerCase() === itemNomeAlvo.trim().toLowerCase());
-    const agora = new Date().toISOString();
-    if (existente) {
-      db.runSync("UPDATE catalogo_ingredientes SET custo_por_unidade = ?, unidade = ?, atualizado_em = ? WHERE id = ?",
-        [c.preco, c.unidade, agora, existente.id]);
-    } else {
-      db.runSync("INSERT INTO catalogo_ingredientes (empresa_id, nome, unidade, custo_por_unidade, atualizado_em) VALUES (?, ?, ?, ?, ?)",
-        [empresaId, itemNomeAlvo, c.unidade, c.preco, agora]);
-    }
-    Alert.alert("✅", `Preço de ${itemNomeAlvo} atualizado no catálogo.`);
+    const n = aplicarCotacao(itemNomeAlvo, c);
+    Alert.alert("✅", n > 0
+      ? `Preço de ${itemNomeAlvo} atualizado no catálogo e em ${n} produto${n > 1 ? "s" : ""}.`
+      : `Preço de ${itemNomeAlvo} atualizado no catálogo.`);
     load();
   }
 
@@ -225,7 +253,7 @@ export default function FornecedoresScreen() {
                     {lista.map((c, i) => (
                       <View key={c.id} style={[s.cotRow, i === 0 && s.cotRowMelhor]}>
                         <View style={{ flex: 1 }}>
-                          <Text style={s.cotFornecedor}>{nomeFornecedor(c.fornecedor_id)} {i === 0 && <Text style={s.cotMelhorBadge}>✅ Mais barato</Text>}</Text>
+                          <Text style={s.cotFornecedor}>{nomeFornecedor(c.fornecedor_id)} {i === 0 && <Text style={s.cotMelhorBadge}>✅ Mais barato</Text>} {c.em_uso === 1 && <Text style={s.cotEmUsoBadge}>📌 Em uso</Text>}</Text>
                           <Text style={s.cotData}>{fmtData(c.data_cotacao)}{c.observacao ? ` · ${c.observacao}` : ""}</Text>
                         </View>
                         <Text style={s.cotPreco}>{fmt(c.preco)}/{c.unidade}</Text>
@@ -457,6 +485,7 @@ const s = StyleSheet.create({
   cotRowMelhor: { backgroundColor: "#ecfdf5", borderWidth: 1, borderColor: "#a7f3d0" },
   cotFornecedor: { fontSize: 13, fontWeight: "700", color: C.TEXT },
   cotMelhorBadge: { fontSize: 10, fontWeight: "800", color: C.SUCCESS },
+  cotEmUsoBadge: { fontSize: 10, fontWeight: "800", color: C.BRAND },
   cotData: { fontSize: 11, color: C.TEXT_MUTED, marginTop: 1 },
   cotPreco: { fontSize: 13, fontWeight: "800", color: C.TEXT },
   btnUsar: { backgroundColor: C.BRAND, borderRadius: 8, paddingHorizontal: 8, paddingVertical: 5 },

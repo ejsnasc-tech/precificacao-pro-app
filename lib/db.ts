@@ -246,6 +246,10 @@ export async function initDB(): Promise<void> {
     // Forma de pagamento de cada venda (dinheiro/debito/credito/pix) — usada
     // no DRE pra calcular a taxa de maquininha certa em vez de um valor único.
     "ALTER TABLE lancamentos ADD COLUMN forma_pagamento TEXT",
+    // 1 = cotação que o dono está usando naquele item (só uma por item). Fica
+    // só neste aparelho: não vai no backup, porque aparelhos com versão antiga
+    // do app não têm a coluna e recusariam o arquivo.
+    "ALTER TABLE cotacoes ADD COLUMN em_uso INTEGER DEFAULT 0",
   ];
   for (const sql of migrations) {
     try { db.runSync(sql); } catch {}

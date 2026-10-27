@@ -7,6 +7,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getDB } from "@/lib/db";
 import { parseValorBR } from "@/lib/numero";
+import { propagarPrecoCatalogo } from "@/lib/catalogoPreco";
 import * as C from "@/constants/colors";
 
 // ── Tipos ────────────────────────────────────────────────────────────────────
@@ -319,8 +320,15 @@ export default function PrecificacaoScreen() {
 
   function salvarEdicaoCatalogo() {
     if (!editandoCat) return;
+    const antigo = catalogo.find((c) => c.id === editandoCat.id);
+    const custoNovo = parseValorBR(editCustoTexto);
     getDB().runSync("UPDATE catalogo_ingredientes SET nome=?, unidade=?, custo_por_unidade=? WHERE id=?",
-      [editandoCat.nome, editandoCat.unidade, parseValorBR(editCustoTexto), editandoCat.id]);
+      [editandoCat.nome, editandoCat.unidade, custoNovo, editandoCat.id]);
+    const n = propagarPrecoCatalogo({
+      empresaId, nomeAntigo: antigo?.nome ?? editandoCat.nome, nomeNovo: editandoCat.nome,
+      unidadeNova: editandoCat.unidade, custoNovo,
+    });
+    if (n > 0) Alert.alert("✅", `Preço atualizado também em ${n} produto${n > 1 ? "s" : ""}.`);
     setEditandoCat(null); load();
   }
 

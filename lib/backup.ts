@@ -31,6 +31,9 @@ export async function exportarBackup(areasSelecionadas: string[]): Promise<void>
   ];
   for (const tabela of tabelasIncluidas) {
     brutos[tabela] = db.getAllSync<Record<string, unknown>>(`SELECT * FROM ${tabela}`);
+    // "em_uso" é estado só deste aparelho: versões antigas do app não têm a
+    // coluna e recusariam o arquivo na importação.
+    if (tabela === "cotacoes") brutos[tabela] = brutos[tabela].map(({ em_uso: _emUso, ...resto }) => resto);
   }
   // versao 2: formato canônico, compatível com backup importado/exportado
   // pelo site também (ver lib/backupCanonico.ts).
