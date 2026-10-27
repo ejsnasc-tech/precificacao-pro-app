@@ -34,6 +34,7 @@ export default function FornecedoresScreen() {
   const [catalogo, setCatalogo] = useState<CatalogoItem[]>([]);
 
   const [modalCotacao, setModalCotacao] = useState(false);
+  const [editandoCotacao, setEditandoCotacao] = useState<Cotacao | null>(null);
   const [itemNome, setItemNome] = useState("");
   const [fornecedorId, setFornecedorId] = useState<number | null>(null);
   const [preco, setPreco] = useState("");
@@ -64,12 +65,25 @@ export default function FornecedoresScreen() {
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
   function abrirNovaCotacao(itemPre?: string, fornecedorPre?: number) {
+    setEditandoCotacao(null);
     setItemNome(itemPre ?? "");
     setFornecedorId(fornecedorPre ?? fornecedores[0]?.id ?? null);
     setPreco("");
     setUnidade("kg");
     setDataCotacao(new Date().toISOString().slice(0, 10));
     setObsCotacao("");
+    setShowSug(false);
+    setModalCotacao(true);
+  }
+
+  function abrirEditarCotacao(c: Cotacao) {
+    setEditandoCotacao(c);
+    setItemNome(c.item_nome);
+    setFornecedorId(c.fornecedor_id);
+    setPreco(String(c.preco).replace(".", ","));
+    setUnidade(c.unidade);
+    setDataCotacao(c.data_cotacao);
+    setObsCotacao(c.observacao ?? "");
     setShowSug(false);
     setModalCotacao(true);
   }
@@ -102,6 +116,21 @@ export default function FornecedoresScreen() {
     const db = getDB();
     const nome = itemNome.trim();
     const precoNum = parseValorBR(preco);
+    if (editandoCotacao) {
+      // Editar uma cotação que está em uso leva o valor novo pro catálogo e pros produtos.
+      db.runSync(
+        "UPDATE cotacoes SET item_nome = ?, fornecedor_id = ?, preco = ?, unidade = ?, data_cotacao = ?, observacao = ? WHERE id = ?",
+        [nome, fornecedorId, precoNum, unidade, dataCotacao, obsCotacao.trim(), editandoCotacao.id]
+      );
+      setModalCotacao(false);
+      if (editandoCotacao.em_uso === 1) {
+        const n = aplicarCotacao(nome, { id: editandoCotacao.id, preco: precoNum, unidade });
+        if (n > 0) Alert.alert("✅", `Preço atualizado também em ${n} produto${n > 1 ? "s" : ""}.`);
+      }
+      setEditandoCotacao(null);
+      load();
+      return;
+    }
     // Se esse fornecedor já é o que o dono está usando nesse item, o preço novo
     // dele é a atualização do que já está em uso: aplica sozinho.
     const emUso = cotacoes.find((x) => x.item_nome.trim().toLowerCase() === nome.toLowerCase() && x.em_uso === 1);
@@ -116,6 +145,17 @@ export default function FornecedoresScreen() {
       if (n > 0) Alert.alert("✅", `Preço atualizado também em ${n} produto${n > 1 ? "s" : ""}.`);
     }
     load();
+  }
+
+  function excluirItem(itemNomeAlvo: string, lista: Cotacao[]) {
+    Alert.alert(
+      `Excluir "${itemNomeAlvo}"?`,
+      `Isso apaga as ${lista.length} cotaç${lista.length > 1 ? "ões" : "ão"} desse item. O preço no catálogo e nos produtos não muda.`,
+      [
+        { text: "Cancelar", style: "cancel" },
+        { text: "Excluir", style: "destructive", onPress: () => { const db = getDB(); for (const x of lista) db.runSync("DELETE FROM cotacoes WHERE id = ?", [x.id]); load(); } },
+      ]
+    );
   }
 
   function deletarCotacao(c: Cotacao) {
@@ -239,9 +279,14 @@ export default function FornecedoresScreen() {
                 <View key={itemNome} style={s.card}>
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10, gap: 8 }}>
                     <Text style={s.itemTitulo}>{itemNome}</Text>
-                    <TouchableOpacity onPress={() => abrirNovaCotacao(itemNome)} style={s.btnCotar}>
-                      <Text style={s.btnCotarText}>+ cotar</Text>
-                    </TouchableOpacity>
+                    <View style={{ flexDirection: "row", gap: 6 }}>
+                      <TouchableOpacity onPress={() => abrirNovaCotacao(itemNome)} style={s.btnCotar}>
+                        <Text style={s.btnCotarText}>+ cotar</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={() => excluirItem(itemNome, lista)} style={s.btnExcluirItem}>
+                        <Text style={s.btnExcluirItemText}>🗑️ item</Text>
+                      </TouchableOpacity>
+                    </View>
                   </View>
                   {noCatalogo && (
                     <Text style={s.catalogoInfo}>
@@ -259,6 +304,9 @@ export default function FornecedoresScreen() {
                         <Text style={s.cotPreco}>{fmt(c.preco)}/{c.unidade}</Text>
                         <TouchableOpacity onPress={() => usarPreco(itemNome, c)} style={s.btnUsar}>
                           <Text style={s.btnUsarText}>Usar</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={() => abrirEditarCotacao(c)} style={{ padding: 4 }}>
+                          <Text>✏️</Text>
                         </TouchableOpacity>
                         <TouchableOpacity onPress={() => deletarCotacao(c)} style={{ padding: 4 }}>
                           <Text style={{ color: C.DANGER }}>🗑️</Text>
@@ -329,6 +377,12 @@ export default function FornecedoresScreen() {
                             <TouchableOpacity onPress={() => usarPreco(c.item_nome, c)} style={s.btnUsar}>
                               <Text style={s.btnUsarText}>Usar</Text>
                             </TouchableOpacity>
+                            <TouchableOpacity onPress={() => abrirEditarCotacao(c)} style={{ padding: 4 }}>
+                              <Text>✏️</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity onPress={() => deletarCotacao(c)} style={{ padding: 4 }}>
+                              <Text style={{ color: C.DANGER }}>🗑️</Text>
+                            </TouchableOpacity>
                           </View>
                         ))
                       )}
@@ -357,7 +411,7 @@ export default function FornecedoresScreen() {
         <SafeAreaView style={{ flex: 1, backgroundColor: C.BG }}>
           <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : undefined}>
             <View style={s.header}>
-              <Text style={s.headerTitle}>📋 Nova cotação</Text>
+              <Text style={s.headerTitle}>{editandoCotacao ? "✏️ Editar cotação" : "📋 Nova cotação"}</Text>
               <TouchableOpacity onPress={() => setModalCotacao(false)}><Text style={{ fontSize: 20, color: C.TEXT_MUTED }}>✕</Text></TouchableOpacity>
             </View>
             <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} keyboardShouldPersistTaps="handled">
@@ -479,6 +533,8 @@ const s = StyleSheet.create({
   card: { backgroundColor: C.CARD, borderRadius: 16, padding: 14, borderWidth: 1, borderColor: C.BORDER },
   itemTitulo: { fontSize: 15, fontWeight: "800", color: C.TEXT },
   catalogoInfo: { fontSize: 11, color: C.TEXT_MUTED },
+  btnExcluirItem: { backgroundColor: "#fef2f2", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
+  btnExcluirItemText: { fontSize: 12, fontWeight: "700", color: C.DANGER },
   btnCotar: { backgroundColor: "#fffbeb", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 5 },
   btnCotarText: { fontSize: 11, fontWeight: "700", color: "#b45309" },
   cotRow: { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: C.BG, borderRadius: 10, padding: 10 },
