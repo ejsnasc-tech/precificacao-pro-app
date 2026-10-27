@@ -17,7 +17,7 @@ interface Cotacao {
 }
 interface CatalogoItem { id: number; nome: string; unidade: string; custo_por_unidade: number; atualizado_em: string | null; }
 
-type Aba = "cotacoes" | "fornecedores";
+type Aba = "cotacoes" | "fornecedores" | "ingredientes";
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const fmtData = (iso: string) => new Date(iso + (iso.length === 10 ? "T12:00:00" : "")).toLocaleDateString("pt-BR");
@@ -34,6 +34,9 @@ export default function FornecedoresScreen() {
   const [catalogo, setCatalogo] = useState<CatalogoItem[]>([]);
 
   const [modalCotacao, setModalCotacao] = useState(false);
+  const [buscaIngrediente, setBuscaIngrediente] = useState("");
+  const [soSemFornecedor, setSoSemFornecedor] = useState(false);
+  const [ingredienteAlvo, setIngredienteAlvo] = useState<CatalogoItem | null>(null);
   const [editandoCotacao, setEditandoCotacao] = useState<Cotacao | null>(null);
   const [itemNome, setItemNome] = useState("");
   const [fornecedorId, setFornecedorId] = useState<number | null>(null);
@@ -205,6 +208,34 @@ export default function FornecedoresScreen() {
     ]);
   }
 
+  const normNome = (v: string) => v.trim().toLowerCase();
+
+  // Cotação que está em uso pra cada ingrediente do catálogo (se houver).
+  function cotacaoEmUso(nome: string): Cotacao | undefined {
+    return cotacoes.find((c) => normNome(c.item_nome) === normNome(nome) && c.em_uso === 1);
+  }
+
+  // O dono diz de qual fornecedor compra o ingrediente. Se esse fornecedor já
+  // tem cotação do item, usa a mais recente dele; senão cria uma com o preço
+  // atual do catálogo (então escolher o fornecedor não muda nenhum preço).
+  function definirFornecedor(ing: CatalogoItem, fid: number) {
+    const doFornecedor = cotacoes
+      .filter((c) => c.fornecedor_id === fid && normNome(c.item_nome) === normNome(ing.nome))
+      .sort((a, b) => a.data_cotacao.localeCompare(b.data_cotacao));
+    let alvo: { id: number; preco: number; unidade: string } | undefined = doFornecedor[doFornecedor.length - 1];
+    if (!alvo) {
+      const res = getDB().runSync(
+        "INSERT INTO cotacoes (empresa_id, item_nome, fornecedor_id, preco, unidade, data_cotacao, observacao) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [empresaId, ing.nome, fid, ing.custo_por_unidade, ing.unidade, new Date().toISOString().slice(0, 10), ""]
+      );
+      alvo = { id: res.lastInsertRowId, preco: ing.custo_por_unidade, unidade: ing.unidade };
+    }
+    const n = aplicarCotacao(ing.nome, alvo);
+    if (n > 0) Alert.alert("✅", `Preço atualizado também em ${n} produto${n > 1 ? "s" : ""}.`);
+    setIngredienteAlvo(null);
+    load();
+  }
+
   function nomeFornecedor(fid: number): string {
     return fornecedores.find((f) => f.id === fid)?.nome ?? "—";
   }
@@ -248,7 +279,7 @@ export default function FornecedoresScreen() {
       </View>
 
       <View style={s.abaBar}>
-        {([["cotacoes", `📋 Cotações (${itensAgrupados.length})`], ["fornecedores", `🚚 Fornecedores (${fornecedores.length})`]] as const).map(([k, label]) => (
+        {([["cotacoes", `📋 Cotações (${itensAgrupados.length})`], ["ingredientes", `🧂 Ingredientes (${catalogo.length})`], ["fornecedores", `🚚 Fornecedores (${fornecedores.length})`]] as const).map(([k, label]) => (
           <TouchableOpacity key={k} onPress={() => setAba(k)} style={[s.abaBtn, aba === k && s.abaBtnActive]}>
             <Text style={[s.abaBtnText, aba === k && s.abaBtnTextActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.75}>{label}</Text>
           </TouchableOpacity>
@@ -256,6 +287,47 @@ export default function FornecedoresScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 60 }}>
+        {aba === "ingredientes" && (
+          fornecedores.length === 0 ? (
+            <View style={s.avisoBox}><Text style={s.avisoText}>Cadastre seus fornecedores na aba &quot;Fornecedores&quot; para depois dizer de quem você compra cada ingrediente.</Text></View>
+          ) : catalogo.length === 0 ? (
+            <View style={{ alignItems: "center", paddingVertical: 48 }}><Text style={{ color: C.TEXT_MUTED, textAlign: "center" }}>Você ainda não tem ingredientes cadastrados. Cadastre no catálogo da Precificação.</Text></View>
+          ) : (
+            <>
+              <Text style={{ color: C.TEXT_MUTED, fontSize: 13 }}>Escolha, em cada ingrediente, de qual fornecedor você está comprando. O preço do ingrediente e dos seus produtos passa a acompanhar esse fornecedor.</Text>
+              <View style={s.buscaBox}>
+                <Text style={s.buscaIcone}>🔍</Text>
+                <TextInput style={s.buscaInput} value={buscaIngrediente} onChangeText={setBuscaIngrediente} placeholder="Buscar ingrediente..." placeholderTextColor={C.TEXT_MUTED} />
+              </View>
+              <TouchableOpacity onPress={() => setSoSemFornecedor(!soSemFornecedor)} style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ fontSize: 18 }}>{soSemFornecedor ? "☑️" : "⬜"}</Text>
+                <Text style={{ color: C.TEXT, fontSize: 13 }}>Só os sem fornecedor ({catalogo.filter((c) => !cotacaoEmUso(c.nome)).length})</Text>
+              </TouchableOpacity>
+              {[...catalogo]
+                .sort((a, b) => a.nome.localeCompare(b.nome))
+                .filter((c) => normNome(c.nome).includes(normNome(buscaIngrediente)))
+                .filter((c) => !soSemFornecedor || !cotacaoEmUso(c.nome))
+                .map((c) => {
+                  const uso = cotacaoEmUso(c.nome);
+                  return (
+                    <View key={c.id} style={[s.card, { flexDirection: "row", alignItems: "center", gap: 10 }]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={s.itemTitulo}>{c.nome}</Text>
+                        <Text style={s.cotData}>
+                          {fmt(c.custo_por_unidade)}/{c.unidade}
+                          {uso ? ` · 📌 comprando de ${nomeFornecedor(uso.fornecedor_id)}` : " · sem fornecedor definido"}
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={() => setIngredienteAlvo(c)} style={s.btnUsar}>
+                        <Text style={s.btnUsarText}>{uso ? "Trocar" : "Escolher"}</Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+            </>
+          )
+        )}
+
         {aba === "cotacoes" && fornecedores.length === 0 && (
           <View style={s.avisoBox}><Text style={s.avisoText}>Cadastre pelo menos um fornecedor na aba &quot;Fornecedores&quot; antes de lançar cotações.</Text></View>
         )}
@@ -398,13 +470,29 @@ export default function FornecedoresScreen() {
         )}
       </ScrollView>
 
-      <TouchableOpacity
+      {aba !== "ingredientes" && <TouchableOpacity
         style={[s.fab, aba === "cotacoes" && fornecedores.length === 0 && { opacity: 0.4 }]}
         onPress={() => (aba === "cotacoes" ? abrirNovaCotacao() : abrirNovoFornecedor())}
         disabled={aba === "cotacoes" && fornecedores.length === 0}
       >
         <Text style={s.fabText}>{aba === "cotacoes" ? "+ Nova cotação" : "+ Novo fornecedor"}</Text>
-      </TouchableOpacity>
+      </TouchableOpacity>}
+
+      <Modal visible={!!ingredienteAlvo} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setIngredienteAlvo(null)}>
+        <SafeAreaView style={{ flex: 1, backgroundColor: C.BG }}>
+          <View style={s.header}>
+            <Text style={s.headerTitle} numberOfLines={1}>Comprando {ingredienteAlvo?.nome} de...</Text>
+            <TouchableOpacity onPress={() => setIngredienteAlvo(null)}><Text style={{ fontSize: 20, color: C.TEXT_MUTED }}>✕</Text></TouchableOpacity>
+          </View>
+          <ScrollView contentContainerStyle={{ padding: 16, gap: 10 }}>
+            {fornecedores.map((f) => (
+              <TouchableOpacity key={f.id} style={s.card} onPress={() => ingredienteAlvo && definirFornecedor(ingredienteAlvo, f.id)}>
+                <Text style={s.itemTitulo}>{f.nome}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </SafeAreaView>
+      </Modal>
 
       {/* Modal Nova Cotação */}
       <Modal visible={modalCotacao} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setModalCotacao(false)}>
