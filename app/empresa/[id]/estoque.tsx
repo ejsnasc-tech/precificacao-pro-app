@@ -9,6 +9,7 @@ import { getDB } from "@/lib/db";
 import * as C from "@/constants/colors";
 import { exportarEstoque, importarEstoque } from "@/lib/syncEstoque";
 import { parseValorBR } from "@/lib/numero";
+import { custoUnitarioSaida } from "@/lib/estoquePEPS";
 
 interface Item {
   id: number; nome: string; unidade: string; quantidade_atual: number;
@@ -16,7 +17,7 @@ interface Item {
 }
 interface Movimento {
   id: number; estoque_id: number; tipo: string; quantidade: number;
-  observacao: string | null; data_validade: string | null; criado_at: string;
+  observacao: string | null; data_validade: string | null; criado_at: string; valor_unitario?: number | null;
 }
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -65,6 +66,7 @@ export default function EstoqueScreen() {
   const [movQtd, setMovQtd] = useState("");
   const [movObs, setMovObs] = useState("");
   const [movValidade, setMovValidade] = useState("");
+  const [movPreco, setMovPreco] = useState("");
   const [historico, setHistorico] = useState<Movimento[]>([]);
   const [modalMov, setModalMov] = useState(false);
 
@@ -107,21 +109,33 @@ export default function EstoqueScreen() {
       parseInt(form.dias_alerta) || 7,
     ];
     if (editando) {
+      // Mudar a quantidade pelo formulário também precisa deixar rastro: sem o
+      // movimento, o saldo de uma data passada não dá pra reconstruir depois.
+      const antes = db.getFirstSync<{ quantidade_atual: number }>("SELECT quantidade_atual FROM estoque WHERE id = ?", [editando.id]);
       db.runSync(
         "UPDATE estoque SET nome=?, unidade=?, quantidade_atual=?, quantidade_minima=?, custo_unitario=?, tem_validade=?, dias_alerta=? WHERE id=?",
         [...body, editando.id]
       );
+      if (antes && antes.quantidade_atual !== qtd) {
+        db.runSync(
+          "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, valor_unitario) VALUES (?, ?, ?, ?, ?)",
+          [editando.id, "ajuste", qtd, `Quantidade editada (era ${antes.quantidade_atual}, agora ${qtd})`, valorDoAjuste({ ...editando, quantidade_atual: antes.quantidade_atual }, qtd)]
+        );
+      }
     } else {
       db.runSync(
         "INSERT INTO estoque (empresa_id, nome, unidade, quantidade_atual, quantidade_minima, custo_unitario, tem_validade, dias_alerta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
         [empresaId, ...body]
       );
-      if (form.tem_validade && qtd > 0 && form.data_validade_inicial) {
+      if (qtd > 0) {
         const newId = db.getFirstSync<{ id: number }>("SELECT last_insert_rowid() as id")!.id;
-        const iso = displayToISO(form.data_validade_inicial) || form.data_validade_inicial;
+        const validade = form.tem_validade && form.data_validade_inicial
+          ? (displayToISO(form.data_validade_inicial) || form.data_validade_inicial)
+          : null;
+        const precoInicial = parseValorBR(form.custo_unitario) || 0;
         db.runSync(
-          "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, data_validade) VALUES (?, ?, ?, ?, ?)",
-          [newId, "entrada", qtd, "Estoque inicial", iso]
+          "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, data_validade, valor_unitario) VALUES (?, ?, ?, ?, ?, ?)",
+          [newId, "entrada", qtd, "Estoque inicial", validade, precoInicial > 0 ? precoInicial : null]
         );
       }
     }
@@ -135,17 +149,43 @@ export default function EstoqueScreen() {
     ]);
   }
 
+  // Custo unitário (PEPS) de tirar "qtd" do item, olhando o histórico dele.
+  function custoDaSaida(item: Item, qtd: number): number {
+    const movs = getDB().getAllSync<Movimento>("SELECT * FROM estoque_movimentos WHERE estoque_id = ?", [item.id]);
+    return custoUnitarioSaida(movs, item.quantidade_atual, item.custo_unitario, qtd);
+  }
+
+  // Ajuste pra baixo custa como uma retirada; pra cima entra ao último preço.
+  function valorDoAjuste(item: Item, novaQtd: number): number | null {
+    const reducao = item.quantidade_atual - novaQtd;
+    if (reducao > 0) return custoDaSaida(item, reducao);
+    return item.custo_unitario > 0 ? item.custo_unitario : null;
+  }
+
   function registrarMovimento() {
     if (!movItem || !movQtd) return;
+    const preco = parseValorBR(movPreco);
+    // Entrada é compra: sem o preço pago não dá pra confirmar.
+    if (movTipo === "entrada" && !(preco > 0)) return;
     const db = getDB();
     const qtd = parseValorBR(movQtd);
+    // Igual ao site: "ajuste" define a quantidade final; só entrada soma e saída subtrai.
+    const valorUnitario = movTipo === "entrada" ? preco : valorDoAjuste(movItem, qtd);
     db.runSync(
-      "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, data_validade) VALUES (?, ?, ?, ?, ?)",
-      [movItem.id, movTipo, qtd, movObs || null, (movTipo === "entrada" && movItem.tem_validade && movValidade) ? (displayToISO(movValidade) || movValidade) : null]
+      "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, data_validade, valor_unitario) VALUES (?, ?, ?, ?, ?, ?)",
+      [movItem.id, movTipo, qtd, movObs || null, (movTipo === "entrada" && movItem.tem_validade && movValidade) ? (displayToISO(movValidade) || movValidade) : null, valorUnitario]
     );
-    const delta = movTipo === "saida" ? -qtd : qtd;
-    db.runSync("UPDATE estoque SET quantidade_atual = quantidade_atual + ? WHERE id = ?", [delta, movItem.id]);
+    if (movTipo === "ajuste") {
+      db.runSync("UPDATE estoque SET quantidade_atual = ? WHERE id = ?", [qtd, movItem.id]);
+    } else {
+      const delta = movTipo === "saida" ? -qtd : qtd;
+      db.runSync("UPDATE estoque SET quantidade_atual = quantidade_atual + ? WHERE id = ?", [delta, movItem.id]);
+    }
+    // O preço do item passa a ser o da última compra.
+    if (movTipo === "entrada") db.runSync("UPDATE estoque SET custo_unitario = ? WHERE id = ?", [preco, movItem.id]);
     setMovQtd(""); setMovObs(""); setMovValidade("");
+    const atualizado = db.getFirstSync<Item>("SELECT * FROM estoque WHERE id = ?", [movItem.id]);
+    if (atualizado) { setMovItem(atualizado); setMovPreco(atualizado.custo_unitario > 0 ? String(atualizado.custo_unitario) : ""); }
     load();
     loadHistorico(movItem);
   }
@@ -154,9 +194,10 @@ export default function EstoqueScreen() {
     if (!retiradaItem || !retiradaQtd) return;
     const db = getDB();
     const qtd = parseValorBR(retiradaQtd);
+    const custo = custoDaSaida(retiradaItem, qtd);
     db.runSync(
-      "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao) VALUES (?, ?, ?, ?)",
-      [retiradaItem.id, "saida", qtd, retiradaObs || null]
+      "INSERT INTO estoque_movimentos (estoque_id, tipo, quantidade, observacao, valor_unitario) VALUES (?, ?, ?, ?, ?)",
+      [retiradaItem.id, "saida", qtd, retiradaObs || null, custo > 0 ? custo : null]
     );
     db.runSync("UPDATE estoque SET quantidade_atual = quantidade_atual - ? WHERE id = ?", [qtd, retiradaItem.id]);
     setRetiradaQtd(""); setRetiradaObs(""); setModalRetirada(false);
@@ -274,7 +315,7 @@ export default function EstoqueScreen() {
                   <TouchableOpacity style={s.btnRetirar} onPress={() => { setRetiradaItem(item); setRetiradaQtd(""); setRetiradaObs(""); setModalRetirada(true); }}>
                     <Text style={s.btnRetirarText}>📤 Retirar</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={s.btnMov} onPress={() => { setMovItem(item); setMovTipo("entrada"); setMovQtd(""); setMovObs(""); setMovValidade(""); loadHistorico(item); setModalMov(true); }}>
+                  <TouchableOpacity style={s.btnMov} onPress={() => { setMovItem(item); setMovTipo("entrada"); setMovQtd(""); setMovObs(""); setMovValidade(""); setMovPreco(item.custo_unitario > 0 ? String(item.custo_unitario) : ""); loadHistorico(item); setModalMov(true); }}>
                     <Text style={s.btnMovText}>↕️ Movimentos</Text>
                   </TouchableOpacity>
                   <TouchableOpacity style={s.btnEdit} onPress={() => {
@@ -374,7 +415,18 @@ export default function EstoqueScreen() {
               ))}
             </View>
 
-            <Field label={`Quantidade (${movItem?.unidade ?? ""})`} value={movQtd} onChange={setMovQtd} keyboard="decimal-pad" />
+            <Field label={movTipo === "ajuste" ? `Nova quantidade em estoque (${movItem?.unidade ?? ""})` : `Quantidade (${movItem?.unidade ?? ""})`} value={movQtd} onChange={setMovQtd} keyboard="decimal-pad" />
+            {movTipo === "entrada" && (
+              <View>
+                <Field label={`💰 Preço pago (R$ por ${movItem?.unidade ?? ""})`} value={movPreco} onChange={setMovPreco} placeholder="0,00" keyboard="decimal-pad" />
+                {movItem && movItem.custo_unitario > 0 && parseValorBR(movPreco) > 0 && parseValorBR(movPreco) !== movItem.custo_unitario && (
+                  <Text style={{ fontSize: 12, color: "#b45309", marginTop: 4 }}>era {fmt(movItem.custo_unitario)}</Text>
+                )}
+                {!(parseValorBR(movPreco) > 0) && (
+                  <Text style={{ fontSize: 12, color: C.DANGER, marginTop: 4 }}>Informe o preço para confirmar a entrada.</Text>
+                )}
+              </View>
+            )}
             <Field label="Observação (opcional)" value={movObs} onChange={setMovObs} />
 
             {movTipo === "entrada" && movItem?.tem_validade === 1 && (
@@ -391,7 +443,7 @@ export default function EstoqueScreen() {
             )}
 
             <TouchableOpacity style={[s.btnSalvar, { backgroundColor: movTipo === "entrada" ? C.SUCCESS : C.BRAND }]}
-              onPress={registrarMovimento} disabled={!movQtd}>
+              onPress={registrarMovimento} disabled={!movQtd || (movTipo === "entrada" && !(parseValorBR(movPreco) > 0))}>
               <Text style={s.btnSalvarText}>{movTipo === "entrada" ? "✅ Confirmar entrada" : "✅ Aplicar ajuste"}</Text>
             </TouchableOpacity>
 
@@ -405,6 +457,9 @@ export default function EstoqueScreen() {
                       <Text style={{ fontSize: 13, fontWeight: "700", color: C.TEXT, textTransform: "capitalize" }}>
                         {m.tipo} · {m.quantidade} {movItem?.unidade}
                       </Text>
+                      {m.valor_unitario != null && m.valor_unitario > 0 && (
+                        <Text style={{ fontSize: 11, color: C.TEXT_MUTED }}>{m.tipo === "entrada" ? "a" : "custo"} {fmt(m.valor_unitario)}/{movItem?.unidade}</Text>
+                      )}
                       {m.data_validade && <Text style={{ fontSize: 11, color: "#7c3aed" }}>val. {new Date(m.data_validade + "T00:00:00").toLocaleDateString("pt-BR")}</Text>}
                       {m.observacao && <Text style={{ fontSize: 11, color: C.TEXT_MUTED }}>{m.observacao}</Text>}
                     </View>

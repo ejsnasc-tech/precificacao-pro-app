@@ -250,6 +250,8 @@ export async function initDB(): Promise<void> {
     // só neste aparelho: não vai no backup, porque aparelhos com versão antiga
     // do app não têm a coluna e recusariam o arquivo.
     "ALTER TABLE cotacoes ADD COLUMN em_uso INTEGER DEFAULT 0",
+    "ALTER TABLE catalogo_ingredientes ADD COLUMN fator_correcao REAL DEFAULT 1",
+    "ALTER TABLE estoque_movimentos ADD COLUMN valor_unitario REAL",
   ];
   for (const sql of migrations) {
     try { db.runSync(sql); } catch {}

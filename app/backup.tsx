@@ -5,6 +5,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as C from "@/constants/colors";
 import { exportarBackup, importarBackup, AREAS } from "@/lib/backup";
 import { useLicenca } from "@/lib/LicencaContext";
+import ImportarPlanilha from "@/components/ImportarPlanilha";
 
 export default function BackupScreen() {
   const router = useRouter();
@@ -57,7 +58,7 @@ export default function BackupScreen() {
     <SafeAreaView style={s.safe}>
       <View style={s.header}>
         <TouchableOpacity onPress={() => router.back()} style={s.backBtn}><Text style={s.backText}>‹</Text></TouchableOpacity>
-        <Text style={s.headerTitle}>💾 Backup</Text>
+        <Text style={s.headerTitle}>💾 Backup e importação</Text>
       </View>
 
       <ScrollView contentContainerStyle={{ padding: 16, gap: 14, paddingBottom: 40 }}>
@@ -110,6 +111,8 @@ export default function BackupScreen() {
             {importando ? <ActivityIndicator color={C.BRAND} /> : <Text style={s.btnOutlineText}>Escolher arquivo de backup</Text>}
           </TouchableOpacity>
         </View>
+
+        <ImportarPlanilha />
       </ScrollView>
     </SafeAreaView>
   );

@@ -67,6 +67,8 @@ export default function FinanceiroScreen() {
   const [lancamentos, setLancamentos] = useState<Lancamento[]>([]);
   const [socios, setSocios] = useState<Socio[]>([]);
   const [configDRE, setConfigDRE] = useState<ConfigDRE | null>(null);
+  // Retiradas do estoque no mês (CMV real): custo total de cada uma e se faltou custo.
+  const [saidasMes, setSaidasMes] = useState<{ custo: number; semCusto: boolean }[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [tipo, setTipo] = useState<"venda" | "compra">("venda");
   const [valor, setValor] = useState("");
@@ -92,6 +94,11 @@ export default function FinanceiroScreen() {
       "SELECT regime, anexo, aliquota_custom, taxa_debito, taxa_credito, taxa_pix, taxa_dinheiro FROM configuracoes_empresa WHERE empresa_id = ?", [empresaId]
     );
     setConfigDRE(cfgRow ?? null);
+    const saidas = db.getAllSync<{ quantidade: number; valor_unitario: number | null }>(
+      "SELECT m.quantidade, m.valor_unitario FROM estoque_movimentos m JOIN estoque e ON e.id = m.estoque_id WHERE e.empresa_id = ? AND m.tipo = 'saida' AND strftime('%Y-%m', m.criado_at, 'localtime') = ?",
+      [empresaId, filtroMes]
+    );
+    setSaidasMes(saidas.map((m) => ({ custo: m.quantidade * (m.valor_unitario ?? 0), semCusto: !((m.valor_unitario ?? 0) > 0) })));
   }, [empresaId, filtroMes]);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
@@ -106,7 +113,11 @@ export default function FinanceiroScreen() {
   })).filter(x => x.valor > 0);
 
   // ── DRE ──
-  const dreCMV = lancamentos.filter(l => l.tipo === "compra" && CATEGORIAS_CMV.includes(l.categoria)).reduce((a, l) => a + l.valor, 0);
+  const dreComprasInsumos = lancamentos.filter(l => l.tipo === "compra" && CATEGORIAS_CMV.includes(l.categoria)).reduce((a, l) => a + l.valor, 0);
+  // Com retiradas de estoque no mês, o CMV é o custo do que foi usado (PEPS); sem elas, cai nos gastos lançados.
+  const cmvEstoqueAtivo = saidasMes.length > 0;
+  const saidasSemCusto = saidasMes.filter(s => s.semCusto).length;
+  const dreCMV = cmvEstoqueAtivo ? saidasMes.reduce((a, s) => a + s.custo, 0) : dreComprasInsumos;
   const dreCustosFixos = lancamentos.filter(l => l.tipo === "compra" && !CATEGORIAS_CMV.includes(l.categoria)).reduce((a, l) => a + l.valor, 0);
   const dreAliquota = configDRE ? getAliquotaDRE(configDRE) : 0;
   const dreImpostos = totalVendas * (dreAliquota / 100);
@@ -354,15 +365,20 @@ export default function FinanceiroScreen() {
               <DreLinha label="Venda total" valor={fmt(totalVendas)} pct={fmtPct(drePct(totalVendas))} destaque />
               <DreLinha label={`(-) Impostos${configDRE ? ` (${dreAliquota.toFixed(2)}%)` : ""}`} valor={fmt(dreImpostos)} pct={fmtPct(drePct(dreImpostos))} cor={C.DANGER} />
               <DreLinha label="(-) Taxa de cartão/maquininha" valor={fmt(dreTaxaCartao)} pct={fmtPct(drePct(dreTaxaCartao))} cor={C.DANGER} />
-              <DreLinha label="(-) CMV (insumos + embalagens)" valor={fmt(dreCMV)} pct={fmtPct(drePct(dreCMV))} cor={C.DANGER} />
+              <DreLinha label={cmvEstoqueAtivo ? "(-) CMV (consumo do estoque)" : "(-) CMV (insumos + embalagens)"} valor={fmt(dreCMV)} pct={fmtPct(drePct(dreCMV))} cor={C.DANGER} />
               <DreLinha label="(=) Margem de Contribuição" valor={fmt(dreMargemContribuicao)} pct={fmtPct(dreMargemContribuicaoPct)} destaque cor="#075985" fundo="#f0f9ff" />
               <DreLinha label="(-) Custos fixos" valor={fmt(dreCustosFixos)} pct={fmtPct(drePct(dreCustosFixos))} cor={C.DANGER} />
               <DreLinha label="(=) Resultado" valor={fmt(dreResultado)} pct={fmtPct(dreMargemLiquida)} destaque
                 cor={dreResultado >= 0 ? "#1e40af" : C.DANGER} fundo={dreResultado >= 0 ? "#eff6ff" : "#fef2f2"} ultima />
             </View>
 
+            <Text style={[s.dreNota, { backgroundColor: cmvEstoqueAtivo ? "#ecfdf5" : "#fffbeb", borderRadius: 10, padding: 10, marginBottom: 8 }]}>
+              {cmvEstoqueAtivo
+                ? `📦 O CMV deste mês vem das retiradas do estoque (${saidasMes.length}), pelo custo do lote mais antigo (PEPS). Compras de insumos e embalagens no mês: ${fmt(dreComprasInsumos)} (só informativo — não entra no resultado).${saidasSemCusto > 0 ? ` ⚠️ ${saidasSemCusto} retirada(s) sem custo — cadastre o preço desses itens no Estoque.` : ""}`
+                : "Sem retiradas de estoque neste mês, o CMV usa os gastos lançados como insumos/embalagens. Para um CMV real, registre as entradas (com preço) e as retiradas no Estoque."}
+            </Text>
             <Text style={s.dreNota}>
-              CMV e custos fixos vêm das categorias marcadas em cada gasto lançado. Impostos são calculados sobre a venda total usando o regime tributário configurado em Precificação → Configurações.
+              Custos fixos vêm das categorias marcadas em cada gasto lançado. Impostos são calculados sobre a venda total usando o regime tributário configurado em Precificação → Configurações.
             </Text>
           </>
         )}

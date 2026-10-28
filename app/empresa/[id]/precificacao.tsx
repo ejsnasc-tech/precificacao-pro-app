@@ -7,6 +7,9 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { getDB } from "@/lib/db";
 import { parseValorBR } from "@/lib/numero";
+import { arredondarPreco, MODOS_ARREDONDAMENTO, type ModoArredondamento } from "@/lib/arredondarPreco";
+import EmbalagemCalc from "@/components/EmbalagemCalc";
+import { custoReal, fatorValido, arredondar4 } from "@/lib/embalagem";
 import { propagarPrecoCatalogo } from "@/lib/catalogoPreco";
 import * as C from "@/constants/colors";
 
@@ -34,7 +37,7 @@ function custoRealCargo(cargo: Cargo): number {
 interface Ingrediente { localId: number; nome: string; quantidade: number; unidade: string; custo_por_unidade: number; }
 interface IngDB { id: number; nome: string; quantidade: number; unidade: string; custo_por_unidade: number; }
 interface Produto { id: number; nome: string; margem: number; tempo_preparo_minutos?: number; pessoas_preparo?: number; rendimento?: number; }
-interface CatalogoItem { id: number; empresa_id: number; nome: string; unidade: string; custo_por_unidade: number; }
+interface CatalogoItem { id: number; empresa_id: number; nome: string; unidade: string; custo_por_unidade: number; fator_correcao?: number | null; }
 
 type Aba = "form" | "lista" | "ingredientes";
 type ModoCalc = "margem" | "preco";
@@ -94,6 +97,33 @@ function calcular(ings: Ingrediente[], margem: number, cfg: Config, funcVal: num
 }
 
 const fmt = (v: number) => v.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+// Escolha do arredondamento + o preço já arredondado e a margem que ele deixa.
+function BlocoArredondar({ calc, aliq, modo, onModo }: { calc: Calculo; aliq: number; modo: ModoArredondamento; onModo: (m: ModoArredondamento) => void }) {
+  const arred = arredondarPreco(calc.precoBase, modo);
+  const op = calc.ins + calc.perdas + calc.func + calc.gv;
+  const lucroReal = arred - op - arred * (aliq / 100);
+  const margemReal = arred > 0 ? (lucroReal / arred) * 100 : 0;
+  return (
+    <View style={{ backgroundColor: "#fffbeb", borderColor: "#fde68a", borderWidth: 1, borderRadius: 12, padding: 10, marginTop: 12 }}>
+      <Text style={{ fontSize: 13, fontWeight: "700", color: "#92400e", marginBottom: 8 }}>🎯 Arredondar preço (sempre pra cima)</Text>
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+        {MODOS_ARREDONDAMENTO.map((m) => (
+          <TouchableOpacity key={m.valor} onPress={() => onModo(m.valor)}
+            style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 8, borderWidth: 1, borderColor: modo === m.valor ? "#f59e0b" : C.BORDER, backgroundColor: modo === m.valor ? "#f59e0b" : "#fff" }}>
+            <Text style={{ fontSize: 12, fontWeight: "600", color: modo === m.valor ? "#fff" : C.TEXT_MUTED }}>{m.rotulo}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      {modo !== "nenhum" && (
+        <Text style={{ fontSize: 13, color: "#78350f", marginTop: 8 }}>
+          Preço: <Text style={{ fontWeight: "800" }}>{fmt(arred)}</Text>
+          <Text style={{ fontSize: 11, color: "#b45309" }}>  (calculado {fmt(calc.precoBase)}) · lucro {fmt(lucroReal)} · margem {margemReal.toFixed(1)}%</Text>
+        </Text>
+      )}
+    </View>
+  );
+}
 const UNIDADES = ["kg", "g", "L", "ml", "un", "cx", "pc"];
 
 // ── Componente ────────────────────────────────────────────────────────────────
@@ -122,6 +152,7 @@ export default function PrecificacaoScreen() {
   const [margem, setMargem] = useState("30");
   const [modoCalc, setModoCalc] = useState<ModoCalc>("margem");
   const [precoVenda, setPrecoVenda] = useState("");
+  const [modoArred, setModoArred] = useState<ModoArredondamento>("nenhum");
   const [ings, setIngs] = useState<Ingrediente[]>([]);
   const [editandoProduto, setEditandoProduto] = useState<Produto | null>(null);
   const [overFunc, setOverFunc] = useState("");
@@ -145,9 +176,10 @@ export default function PrecificacaoScreen() {
   const [prodDetail, setProdDetail] = useState<{ id: number; nome: string; margem: number; ingredientes: IngDB[] } | null>(null);
 
   // Catálogo
-  const [novoCat, setNovoCat] = useState({ nome: "", unidade: "kg", custo_por_unidade: "" });
+  const [novoCat, setNovoCat] = useState({ nome: "", unidade: "kg", custo_por_unidade: "", fator: "" });
   const [editandoCat, setEditandoCat] = useState<CatalogoItem | null>(null);
   const [editCustoTexto, setEditCustoTexto] = useState("");
+  const [editFatorTexto, setEditFatorTexto] = useState("");
 
   // ── Load ──────────────────────────────────────────────────────────────────
 
@@ -255,7 +287,7 @@ export default function PrecificacaoScreen() {
   function removeIng(localId: number) { setIngs(prev => prev.filter(i => i.localId !== localId)); }
 
   function selecionarSugestao(item: CatalogoItem) {
-    setINome(item.nome); setICusto(String(item.custo_por_unidade)); setIUn(item.unidade);
+    setINome(item.nome); setICusto(String(arredondar4(custoReal(item.custo_por_unidade, item.fator_correcao)))); setIUn(item.unidade);
     setShowSug(false);
   }
 
@@ -313,20 +345,21 @@ export default function PrecificacaoScreen() {
 
   function addCatalogo() {
     if (!novoCat.nome.trim() || !novoCat.custo_por_unidade) return;
-    getDB().runSync("INSERT INTO catalogo_ingredientes (empresa_id, nome, unidade, custo_por_unidade) VALUES (?, ?, ?, ?)",
-      [empresaId, novoCat.nome.trim(), novoCat.unidade, parseValorBR(novoCat.custo_por_unidade)]);
-    setNovoCat({ nome: "", unidade: "kg", custo_por_unidade: "" }); load();
+    getDB().runSync("INSERT INTO catalogo_ingredientes (empresa_id, nome, unidade, custo_por_unidade, fator_correcao) VALUES (?, ?, ?, ?, ?)",
+      [empresaId, novoCat.nome.trim(), novoCat.unidade, parseValorBR(novoCat.custo_por_unidade), fatorValido(parseValorBR(novoCat.fator))]);
+    setNovoCat({ nome: "", unidade: "kg", custo_por_unidade: "", fator: "" }); load();
   }
 
   function salvarEdicaoCatalogo() {
     if (!editandoCat) return;
     const antigo = catalogo.find((c) => c.id === editandoCat.id);
     const custoNovo = parseValorBR(editCustoTexto);
-    getDB().runSync("UPDATE catalogo_ingredientes SET nome=?, unidade=?, custo_por_unidade=? WHERE id=?",
-      [editandoCat.nome, editandoCat.unidade, custoNovo, editandoCat.id]);
+    const fator = fatorValido(parseValorBR(editFatorTexto));
+    getDB().runSync("UPDATE catalogo_ingredientes SET nome=?, unidade=?, custo_por_unidade=?, fator_correcao=? WHERE id=?",
+      [editandoCat.nome, editandoCat.unidade, custoNovo, fator, editandoCat.id]);
     const n = propagarPrecoCatalogo({
       empresaId, nomeAntigo: antigo?.nome ?? editandoCat.nome, nomeNovo: editandoCat.nome,
-      unidadeNova: editandoCat.unidade, custoNovo,
+      unidadeNova: editandoCat.unidade, custoNovo: custoReal(custoNovo, fator),
     });
     if (n > 0) Alert.alert("✅", `Preço atualizado também em ${n} produto${n > 1 ? "s" : ""}.`);
     setEditandoCat(null); load();
@@ -406,7 +439,7 @@ export default function PrecificacaoScreen() {
                         {sugestoes.slice(0, 5).map(sug => (
                           <TouchableOpacity key={sug.id} style={s.sugItem} onPress={() => selecionarSugestao(sug)}>
                             <Text style={s.sugNome}>{sug.nome}</Text>
-                            <Text style={s.sugCusto}>{fmt(sug.custo_por_unidade)}/{sug.unidade}</Text>
+                            <Text style={s.sugCusto}>{fmt(custoReal(sug.custo_por_unidade, sug.fator_correcao))}/{sug.unidade}</Text>
                           </TouchableOpacity>
                         ))}
                       </View>
@@ -558,6 +591,7 @@ export default function PrecificacaoScreen() {
                   <Text style={{ fontSize: 11, color: C.BRAND, fontWeight: "700", textTransform: "uppercase", letterSpacing: 0.5 }}>💰 Preço Base de Venda</Text>
                   <Text style={{ fontSize: 38, fontWeight: "900", color: C.BRAND, marginTop: 4 }}>{fmt(calc.precoBase)}</Text>
                 </View>
+                <BlocoArredondar calc={calc} aliq={getAliquota(config)} modo={modoArred} onModo={setModoArred} />
 
                 {/* Por forma de pagamento */}
                 <Text style={[s.cardTitle, { marginTop: 16, marginBottom: 8 }]}>💳 Por forma de pagamento</Text>
@@ -570,7 +604,7 @@ export default function PrecificacaoScreen() {
                   ].map(({ l, v }) => (
                     <View key={l} style={s.pagCard}>
                       <Text style={s.pagLabel}>{l}</Text>
-                      <Text style={s.pagValor}>{fmt(v)}</Text>
+                      <Text style={s.pagValor}>{fmt(arredondarPreco(v, modoArred))}</Text>
                     </View>
                   ))}
                 </View>
@@ -591,7 +625,7 @@ export default function PrecificacaoScreen() {
           {aba === "lista" && (
             <>
               {produtos.length === 0 ? (
-                <View style={s.empty}><Text style={s.emptyEmoji}>📭</Text><Text style={s.emptyText}>Nenhum produto salvo ainda</Text></View>
+                <View style={s.empty}><Text style={s.emptyEmoji}>📭</Text><Text style={s.emptyText}>Nenhum produto salvo ainda</Text><TouchableOpacity onPress={() => router.push("/backup")}><Text style={{ fontSize: 12, color: C.BRAND, marginTop: 10 }}>Já tem uma planilha? Importe em Backup</Text></TouchableOpacity></View>
               ) : (
                 <>
                   <TextInput style={s.input} value={buscaProduto} onChangeText={setBuscaProduto}
@@ -649,9 +683,10 @@ export default function PrecificacaoScreen() {
                             <Text style={{ fontSize: 11, color: C.BRAND, fontWeight: "700" }}>💰 Preço Base</Text>
                             <Text style={{ fontSize: 26, fontWeight: "900", color: C.BRAND }}>{fmt(cProd.precoBase)}</Text>
                           </View>
+                          <BlocoArredondar calc={cProd} aliq={getAliquota(config)} modo={modoArred} onModo={setModoArred} />
                           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
                             {[{ l: "Débito", v: cProd.debito }, { l: "Crédito", v: cProd.credito }, { l: "PIX", v: cProd.pix }, { l: "Dinheiro", v: cProd.dinheiro }].map(({ l, v }) => (
-                              <View key={l} style={s.pagCard}><Text style={s.pagLabel}>{l}</Text><Text style={s.pagValor}>{fmt(v)}</Text></View>
+                              <View key={l} style={s.pagCard}><Text style={s.pagLabel}>{l}</Text><Text style={s.pagValor}>{fmt(arredondarPreco(v, modoArred))}</Text></View>
                             ))}
                           </View>
                           {(prodDetail?.ingredientes?.length ?? 0) > 0 && (
@@ -695,13 +730,18 @@ export default function PrecificacaoScreen() {
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
+                <View style={{ marginTop: 8, gap: 8 }}>
+                  <EmbalagemCalc key={novoCat.unidade} unidade={novoCat.unidade} onCusto={(c) => setNovoCat((prev) => ({ ...prev, custo_por_unidade: c }))} />
+                  <TextInput style={s.input} value={novoCat.fator} onChangeText={v => setNovoCat({ ...novoCat, fator: v })}
+                    placeholder="Fator de correção (1 = sem perda; ex.: 1,25)" placeholderTextColor={C.TEXT_MUTED} keyboardType="decimal-pad" />
+                </View>
                 <TouchableOpacity style={[s.btnSalvar, { marginTop: 12 }]} onPress={addCatalogo}>
                   <Text style={s.btnSalvarText}>+ Adicionar ao catálogo</Text>
                 </TouchableOpacity>
               </View>
 
               {catalogo.length === 0 ? (
-                <View style={s.empty}><Text style={s.emptyEmoji}>🧂</Text><Text style={s.emptyText}>Nenhum ingrediente cadastrado</Text></View>
+                <View style={s.empty}><Text style={s.emptyEmoji}>🧂</Text><Text style={s.emptyText}>Nenhum ingrediente cadastrado</Text><TouchableOpacity onPress={() => router.push("/backup")}><Text style={{ fontSize: 12, color: C.BRAND, marginTop: 10 }}>Já tem uma planilha? Importe em Backup</Text></TouchableOpacity></View>
               ) : (
                 <TextInput style={s.input} value={buscaCatalogo} onChangeText={setBuscaCatalogo}
                   placeholder="🔍 Buscar ingrediente..." placeholderTextColor={C.TEXT_MUTED} />
@@ -721,6 +761,9 @@ export default function PrecificacaoScreen() {
                             </TouchableOpacity>
                           ))}
                         </ScrollView>
+                        <EmbalagemCalc key={editandoCat.unidade} unidade={editandoCat.unidade} onCusto={setEditCustoTexto} />
+                        <TextInput style={s.input} value={editFatorTexto} onChangeText={setEditFatorTexto}
+                          placeholder="Fator de correção (1 = sem perda; ex.: 1,25)" placeholderTextColor={C.TEXT_MUTED} keyboardType="decimal-pad" />
                         <View style={{ flexDirection: "row", gap: 8 }}>
                           <TouchableOpacity style={[s.btnSalvar, { flex: 1 }]} onPress={salvarEdicaoCatalogo}><Text style={s.btnSalvarText}>Salvar</Text></TouchableOpacity>
                           <TouchableOpacity style={[s.btnOutline, { flex: 1 }]} onPress={() => setEditandoCat(null)}><Text style={s.btnOutlineText}>Cancelar</Text></TouchableOpacity>
@@ -731,8 +774,13 @@ export default function PrecificacaoScreen() {
                         <View style={{ flex: 1 }}>
                           <Text style={s.prodNome}>{c.nome}</Text>
                           <Text style={s.prodSub}>{fmt(c.custo_por_unidade)}/{c.unidade}</Text>
+                          {fatorValido(c.fator_correcao) > 1 && (
+                            <Text style={{ fontSize: 12, color: "#b45309" }}>
+                              Fator {fatorValido(c.fator_correcao).toLocaleString("pt-BR")} (aproveita {Math.round(100 / fatorValido(c.fator_correcao))}%) → custo real {fmt(custoReal(c.custo_por_unidade, c.fator_correcao))}/{c.unidade}
+                            </Text>
+                          )}
                         </View>
-                        <TouchableOpacity style={[s.btnSmall, { marginRight: 6 }]} onPress={() => { setEditandoCat(c); setEditCustoTexto(String(c.custo_por_unidade)); }}><Text style={s.btnSmallText}>✏️</Text></TouchableOpacity>
+                        <TouchableOpacity style={[s.btnSmall, { marginRight: 6 }]} onPress={() => { setEditandoCat(c); setEditCustoTexto(String(c.custo_por_unidade)); setEditFatorTexto(fatorValido(c.fator_correcao) > 1 ? String(c.fator_correcao) : ""); }}><Text style={s.btnSmallText}>✏️</Text></TouchableOpacity>
                         <TouchableOpacity style={[s.btnSmall, { backgroundColor: "#fff5f5" }]} onPress={() => deletarCatalogo(c)}><Text style={[s.btnSmallText, { color: C.DANGER }]}>✕</Text></TouchableOpacity>
                       </View>
                     )}

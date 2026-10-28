@@ -8,6 +8,8 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { getDB } from "@/lib/db";
 import * as C from "@/constants/colors";
 import { parseValorBR } from "@/lib/numero";
+import EmbalagemCalc from "@/components/EmbalagemCalc";
+import { custoReal } from "@/lib/embalagem";
 import { propagarPrecoCatalogo } from "@/lib/catalogoPreco";
 
 interface Fornecedor { id: number; nome: string; telefone: string; observacoes: string; }
@@ -15,7 +17,7 @@ interface Cotacao {
   id: number; item_nome: string; fornecedor_id: number; preco: number;
   unidade: string; data_cotacao: string; observacao: string; em_uso?: number | null;
 }
-interface CatalogoItem { id: number; nome: string; unidade: string; custo_por_unidade: number; atualizado_em: string | null; }
+interface CatalogoItem { id: number; nome: string; unidade: string; custo_por_unidade: number; atualizado_em: string | null; fator_correcao?: number | null; }
 
 type Aba = "cotacoes" | "fornecedores" | "ingredientes";
 
@@ -110,7 +112,7 @@ export default function FornecedoresScreen() {
     db.runSync("UPDATE catalogo_ingredientes SET custo_por_unidade = ?, unidade = ?, atualizado_em = ? WHERE id = ?",
       [c.preco, c.unidade, agora, existente.id]);
     return propagarPrecoCatalogo({
-      empresaId, nomeAntigo: existente.nome, nomeNovo: existente.nome, unidadeNova: c.unidade, custoNovo: c.preco,
+      empresaId, nomeAntigo: existente.nome, nomeNovo: existente.nome, unidadeNova: c.unidade, custoNovo: custoReal(c.preco, existente.fator_correcao),
     });
   }
 
@@ -550,6 +552,7 @@ export default function FornecedoresScreen() {
                   </ScrollView>
                 </View>
               </View>
+              <EmbalagemCalc key={unidade} unidade={unidade} onCusto={(c) => setPreco(c.replace(".", ","))} />
 
               <View>
                 <Text style={s.label}>Data da cotação</Text>
