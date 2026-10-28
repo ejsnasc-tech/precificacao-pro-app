@@ -2,7 +2,7 @@
   "expo": {
     "name": "Top Precificação",
     "slug": "precificacao-pro-app",
-    "version": "1.0.9",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -13,11 +13,11 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "25"
+      "buildNumber": "26"
     },
     "android": {
       "package": "com.ejsnasc.precificacaopro",
-      "versionCode": 25,
+      "versionCode": 26,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#4f46e5"
